@@ -1,0 +1,24 @@
+# Credentials. Never commit these.
+# Everything in secrets/ is ignored except the placeholder templates, which are
+# listed one by one on purpose. Do not generalise these to "!/secrets/*.example":
+# a real credential saved under an .example name would then be committed.
+/secrets/*
+!/secrets/.gitkeep
+!/secrets/aws.env.example
+
+# Installer state: kubeconfig, kubeadmin password, and the metadata required to
+# destroy the cluster.
+/clusters/*
+!/clusters/.gitkeep
+
+# Rendered by scripts/; install-config.yaml contains the pull secret and the
+# mirror CA, imageset-config.yaml is regenerated from cluster.env.
+/install-config.yaml
+/imageset-config.yaml
+
+# Script logs. They name AWS resources, hostnames and account identifiers.
+/logs/*
+!/logs/.gitkeep
+
+# Scratch git worktrees created for background agents.
+/.claude/worktrees/
