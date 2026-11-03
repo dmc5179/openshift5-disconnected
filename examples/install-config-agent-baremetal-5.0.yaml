@@ -1,0 +1,92 @@
+# Agent-based Installer, on-prem bare metal, DISCONNECTED - OCP 5.0
+# Sources: openshift/openshift-docs branch enterprise-5.0 (UNRELEASED, commit a6c307c7, 2026-11-02)
+#   [A] modules/installation-bare-metal-agent-installer-config-yaml.adoc  "Sample install-config.yaml file for bare metal" (agent)
+#   [B] modules/installation-bare-metal-config-yaml.adoc  restricted-network block (additionalTrustBundle + imageContentSources)
+#   [C] modules/ipi-modify-install-config-for-a-disconnected-registry.adoc  (ocp-v5.0-art-dev requirement)
+# Everything not marked "NOTE(ours)" is verbatim from [A]/[B]. This file is a merge of two doc modules; the
+# docs do not show a single combined agent+disconnected example for 5.0.
+#
+# NOTE(ours): The agent-specific disconnected module (agent-install-configuring-for-disconnected-registry.adoc)
+#   is STALE in 5.0: it still references oc-mirror v1 imageContentSourcePolicy.yaml and only ocp-v4.0-art-dev.
+#   Follow [C] instead: "copy every imageDigestMirrors entry from working-dir/cluster-resources/idms-oc-mirror.yaml".
+# NOTE(ours): FIPS: extract the FIPS installer from your MIRROR so the RHCOS ISO comes from machine-os-images,
+#   not rhcos.mirror.openshift.com:
+#     oc adm release extract --registry-config <pull-secret> --command=openshift-install-fips --to <dir> <mirror>/<repo>:<release>
+#   Run it on a RHEL host booted in FIPS mode.
+apiVersion: v1
+baseDomain: example.com
+compute:
+- name: worker
+  replicas: 0
+  architecture: amd64
+controlPlane:
+  name: master
+  replicas: 1
+  architecture: amd64
+metadata:
+  name: sno-cluster
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  machineNetwork:
+  - cidr: 192.168.0.0/16
+  networkType: OVNKubernetes
+  serviceNetwork:
+  - 172.30.0.0/16
+platform:
+  none: {}
+fips: false
+# NOTE(ours): osImageStream selects RHCOS 10 (default on 5.x) or RHCOS 9. Uncomment to pin RHCOS 9, e.g. for
+#   FIPS-validated-module requirements or runc. Top-level field; valid values rhel-9 | rhel-10 (installation-configuration-parameters.adoc).
+# osImageStream: rhel-9
+# ---- Disable "Red Hat Lightspeed" (formerly Red Hat Insights) at install - NOTE(ours) ----
+# "Red Hat Lightspeed" in OCP 5 docs = Insights Operator / remote health (NOT the OpenShift Lightspeed AI assistant).
+# The Insights Operator is the optional `Insights` capability (5.0 docs modules/insights-operator.adoc:
+# "optional cluster capability that can be disabled by cluster administrators during installation").
+# Pattern from OCP 4.22 docs (Installation overview > cluster capabilities): baselineCapabilitySet + explicit list.
+# List = 5.0 vCurrent MINUS Insights (exact names from installer release-5.0 openshift/api types_cluster_version.go).
+# Installer validation (pkg/types/validation/installconfig.go): Ingress always required; platform baremetal requires `baremetal` when baselineCapabilitySet is None.
+# A capability cannot be disabled after install - decide now. Re-enable later with:
+#   oc patch clusterversion version --type merge -p '{"spec":{"capabilities":{"additionalEnabledCapabilities":[...,"Insights"]}}}'
+capabilities:
+  baselineCapabilitySet: None
+  additionalEnabledCapabilities:
+  - baremetal
+  - Console
+  - marketplace
+  - Storage
+  - openshift-samples
+  - CSISnapshot
+  - NodeTuning
+  - MachineAPI
+  - Build
+  - DeploymentConfig
+  - ImageRegistry
+  - OperatorLifecycleManager
+  - OperatorLifecycleManagerV1
+  - CloudCredential
+  - Ingress
+  - CloudControllerManager
+  - CompatibilityRequirements
+  - ClusterAPI
+  # - Insights      # <- intentionally omitted: disables the Insights Operator ("Red Hat Lightspeed" health reporting)
+# Telemetry is separate from the Insights capability. To opt out of Telemetry/remote health at install, remove the
+# "cloud.openshift.com" entry from pullSecret before installing (KB 5530441; 5.0 docs insights-operator-new-pull-secret-disabled.adoc).
+# In a disconnected install the pull secret normally only contains the mirror registry, so this is usually already true.
+pullSecret: '{"auths": ...}'
+sshKey: 'ssh-ed25519 AAAA...'
+# ---- restricted network block, verbatim from [B] (non-IBM Z variant) ----
+additionalTrustBundle: |
+  -----BEGIN CERTIFICATE-----
+  ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
+  -----END CERTIFICATE-----
+imageContentSources:
+- mirrors:
+  - <local_registry>/<local_repository_name>/release
+  source: quay.io/openshift-release-dev/ocp-release
+- mirrors:
+  - <local_registry>/<local_repository_name>/release
+  source: quay.io/openshift-release-dev/ocp-v5.0-art-dev
+# NOTE(ours): imageContentSources is deprecated in favor of imageDigestSources (same shape). Jira OSDOCS-22739 shows
+#   a three-entry set including ocp-v4.0-art-dev; the safest rule is [C]: paste ALL entries from idms-oc-mirror.yaml.

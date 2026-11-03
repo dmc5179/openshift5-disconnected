@@ -1,0 +1,22 @@
+# Test config for the oc-mirror cross-major-channel bug (see ../../jira-draft-oc-mirror-cross-major-channel.md)
+# Channel/version data verified against the public Cincinnati API (api.openshift.com) on 2026-11-02:
+#   candidate-4.22: max 4.22.21 | candidate-4.23: only 4.22.x + 4.23.0-ec.0/ec.1 | candidate-4.24: empty
+#   candidate-5.0: 4.22.x + 5.0.0-rc.* + 5.0.0, direct edge 4.22.21 -> 5.0.0 | stable-5.0: empty until GA
+# No operators/additionalImages so a dry run stays small. graph: false to avoid the graph image.
+# CASE D (control): two channels within one major (4.21 -> 4.22). Proves multi-channel calculation works when
+# Minor++ lands on the real next channel. Adjust min/max to versions present in candidate-4.21/4.22 if needed.
+apiVersion: mirror.openshift.io/v2alpha1
+kind: ImageSetConfiguration
+mirror:
+  platform:
+    graph: false
+    architectures: [amd64]
+    channels:
+    - name: candidate-4.21
+      type: ocp
+      minVersion: 4.21.0
+      maxVersion: 4.21.0
+    - name: candidate-4.22
+      type: ocp
+      minVersion: 4.22.21
+      maxVersion: 4.22.21

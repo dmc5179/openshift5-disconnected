@@ -1,0 +1,67 @@
+# Source: openshift/openshift-docs branch enterprise-5.0 (UNRELEASED, commit a6c307c7, 2026-11-02)
+#   modules/installation-aws-config-yaml-customizations.adoc
+# Body is VERBATIM except one fix: the doc has "-  name: worker" (two spaces) which is INVALID YAML; corrected to "- name: worker".
+# The 5.0 docs contain only this minimal AWS sample; no AWS disconnected/restricted 5.0 sample
+# was found. NOTE(ours): for a disconnected AWS install add additionalTrustBundle + imageDigestSources with ALL
+# entries from oc-mirror's idms-oc-mirror.yaml (including quay.io/openshift-release-dev/ocp-v5.0-art-dev), plus
+# platform.aws.vpc/subnets for a private VPC and publish: Internal - validate against the 4.22 "Installing a cluster
+# on AWS in a restricted network" procedure until 5.0 docs publish.
+apiVersion: v1
+baseDomain: example.com
+sshKey: ssh-ed25519 AAAA...
+pullSecret: '{"auths": ...}'
+metadata:
+  name: example-cluster
+controlPlane:
+  name: master
+  platform:
+    aws:
+      type: m6i.xlarge
+  replicas: 3
+compute:
+- name: worker
+  platform:
+    aws:
+      type: c5.4xlarge
+  replicas: 3
+# ---- Disable "Red Hat Lightspeed" (formerly Red Hat Insights) at install - NOTE(ours) ----
+# "Red Hat Lightspeed" in OCP 5 docs = Insights Operator / remote health (NOT the OpenShift Lightspeed AI assistant).
+# The Insights Operator is the optional `Insights` capability (5.0 docs modules/insights-operator.adoc:
+# "optional cluster capability that can be disabled by cluster administrators during installation").
+# Pattern from OCP 4.22 docs (Installation overview > cluster capabilities): baselineCapabilitySet + explicit list.
+# List = 5.0 vCurrent MINUS Insights (exact names from installer release-5.0 openshift/api types_cluster_version.go).
+# Installer validation (pkg/types/validation/installconfig.go): Ingress always required; on AWS CloudCredential and CloudControllerManager must stay enabled.
+# A capability cannot be disabled after install - decide now. Re-enable later with:
+#   oc patch clusterversion version --type merge -p '{"spec":{"capabilities":{"additionalEnabledCapabilities":[...,"Insights"]}}}'
+capabilities:
+  baselineCapabilitySet: None
+  additionalEnabledCapabilities:
+  - baremetal                 # harmless on AWS; drop if you want a minimal set
+  - Console
+  - marketplace
+  - Storage
+  - openshift-samples
+  - CSISnapshot
+  - NodeTuning
+  - MachineAPI
+  - Build
+  - DeploymentConfig
+  - ImageRegistry
+  - OperatorLifecycleManager
+  - OperatorLifecycleManagerV1
+  - CloudCredential
+  - Ingress
+  - CloudControllerManager
+  - CompatibilityRequirements
+  - ClusterAPI
+  # - Insights      # <- intentionally omitted: disables the Insights Operator ("Red Hat Lightspeed" health reporting)
+# Telemetry is separate from the Insights capability. To opt out of Telemetry/remote health at install, remove the
+# "cloud.openshift.com" entry from pullSecret before installing (KB 5530441; 5.0 docs insights-operator-new-pull-secret-disabled.adoc).
+# In a disconnected install the pull secret normally only contains the mirror registry, so this is usually already true.
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+platform:
+  aws:
+    region: us-west-2

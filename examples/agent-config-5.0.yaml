@@ -1,0 +1,54 @@
+# Source: openshift/openshift-docs branch enterprise-5.0 (UNRELEASED, commit a6c307c7, 2026-11-02)
+#   modules/agent-install-sample-config-bonds-vlans.adoc  "Example: Bonds and VLAN interface node network configuration"
+# VERBATIM (de-indented). Pair with install-config-agent-baremetal-5.0.yaml.
+apiVersion: v1alpha1
+kind: AgentConfig
+rendezvousIP: 10.10.10.14
+hosts:
+  - hostname: master0
+    role: master
+    interfaces:
+     - name: enp0s4
+       macAddress: 00:21:50:90:c0:10
+     - name: enp0s5
+       macAddress: 00:21:50:90:c0:20
+    networkConfig:
+      interfaces:
+        - name: bond0.300
+          type: vlan
+          state: up
+          vlan:
+            base-iface: bond0
+            id: 300
+          ipv4:
+            enabled: true
+            address:
+              - ip: 10.10.10.14
+                prefix-length: 24
+            dhcp: false
+        - name: bond0
+          type: bond
+          state: up
+          mac-address: 00:21:50:90:c0:10
+          ipv4:
+            enabled: false
+          ipv6:
+            enabled: false
+          link-aggregation:
+            mode: active-backup
+            options:
+              miimon: "150"
+            port:
+             - enp0s4
+             - enp0s5
+      dns-resolver:
+        config:
+          server:
+            - 10.10.10.11
+            - 10.10.10.12
+      routes:
+        config:
+          - destination: 0.0.0.0/0
+            next-hop-address: 10.10.10.10
+            next-hop-interface: bond0.300
+            table-id: 254

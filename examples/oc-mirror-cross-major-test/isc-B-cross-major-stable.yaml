@@ -1,0 +1,23 @@
+# Test config for the oc-mirror cross-major-channel bug (see ../../jira-draft-oc-mirror-cross-major-channel.md)
+# Channel/version data verified against the public Cincinnati API (api.openshift.com) on 2026-11-02:
+#   candidate-4.22: max 4.22.21 | candidate-4.23: only 4.22.x + 4.23.0-ec.0/ec.1 | candidate-4.24: empty
+#   candidate-5.0: 4.22.x + 5.0.0-rc.* + 5.0.0, direct edge 4.22.21 -> 5.0.0 | stable-5.0: empty until GA
+# No operators/additionalImages so a dry run stays small. graph: false to avoid the graph image.
+# CASE B (customer-realistic, run AFTER 5.0 GA when stable-5.0 is populated).
+# Predicted: oc-mirror looks up stable-4.23 (empty today) and fails with an APIRequestError / no versions.
+# Before GA it will fail anyway because stable-5.0 is empty - that is NOT the bug.
+apiVersion: mirror.openshift.io/v2alpha1
+kind: ImageSetConfiguration
+mirror:
+  platform:
+    graph: false
+    architectures: [amd64]
+    channels:
+    - name: stable-4.22
+      type: ocp
+      minVersion: 4.22.20
+      maxVersion: 4.22.20
+    - name: stable-5.0
+      type: ocp
+      minVersion: 5.0.0
+      maxVersion: 5.0.0
