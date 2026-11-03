@@ -181,6 +181,10 @@ ZONES_JSON="$(printf '%s\n' "$AZS" | jq -R -c 'split(",")')"
 
 # Mirror mappings for the release payload. oc-mirror v2 pushes the release index
 # to <ns>/openshift/release-images and the component images to <ns>/openshift/release.
+# Observed for 5.0.0 (examples/oc-mirror-5.0-m2d/RESULTS.md): all 197 payload images
+# come from ocp-v5.0-art-dev, none from ocp-v4.0-art-dev. The v4.0 entry is kept
+# because the payload still references it for the KubeVirt boot images and the
+# default ClusterImagePolicy, and 4.x -> 5.0 upgrades need it; it is harmless.
 IDMS_JSON="$(jq -n -c --arg m "$MIRROR" '[
   {mirrors: ["\($m)/openshift/release-images"], source: "quay.io/openshift-release-dev/ocp-release"},
   {mirrors: ["\($m)/openshift/release"],        source: "quay.io/openshift-release-dev/ocp-v4.0-art-dev"},
