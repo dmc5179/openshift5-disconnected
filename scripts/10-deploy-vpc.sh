@@ -102,14 +102,7 @@ jq -e '.auths | length > 0' "$PULL_SECRET_FILE" >/dev/null \
 # --- bastion AMI: newest Red Hat RHEL <major> for the region ---------------------
 case "${BASTION_RHEL_VERSION:-9}" in 9|10) ;; *) echo "Error: BASTION_RHEL_VERSION must be 9 or 10." >&2; exit 1 ;; esac
 if [ -z "${BASTION_AMI_ID:-}" ]; then
-    case "$AWS_PARTITION" in
-        aws)        RH_OWNER="309956199498" ;;
-        aws-us-gov) RH_OWNER="219670896067" ;;
-        *) echo "Error: no Red Hat AMI owner known for partition ${AWS_PARTITION}; set BASTION_AMI_ID." >&2; exit 1 ;;
-    esac
-    BASTION_AMI_ID="$(aws ec2 describe-images --owners "$RH_OWNER" \
-        --filters "Name=name,Values=RHEL-${BASTION_RHEL_VERSION}.*_HVM-*-x86_64-*-Hourly2-GP3" "Name=state,Values=available" \
-        --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text)"
+    BASTION_AMI_ID="$(latest_rhel_ami "$BASTION_RHEL_VERSION")"
     [ -n "$BASTION_AMI_ID" ] && [ "$BASTION_AMI_ID" != "None" ] \
         || { echo "Error: no RHEL ${BASTION_RHEL_VERSION} AMI found in ${REGION}; set BASTION_AMI_ID." >&2; exit 1; }
 fi

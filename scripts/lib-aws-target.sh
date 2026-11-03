@@ -54,3 +54,20 @@ resolve_aws_target() {
         echo "==> Target: ${TARGET_ENV} (partition ${AWS_PARTITION}, detected from credentials)"
     fi
 }
+
+# latest_rhel_ami <major> [owner]: newest Red Hat Hourly2-GP3 x86_64 AMI for a
+# RHEL major, preferring the highest minor release (10.2 over a newer-dated 10.0
+# refresh), then the newest build date.
+latest_rhel_ami() {
+    local major="$1" owner="${2:-}"
+    if [ -z "$owner" ]; then
+        case "${AWS_PARTITION:-aws}" in
+            aws)        owner="309956199498" ;;
+            aws-us-gov) owner="219670896067" ;;
+            *) echo "latest_rhel_ami: no Red Hat AMI owner known for partition ${AWS_PARTITION}" >&2; return 1 ;;
+        esac
+    fi
+    aws ec2 describe-images --owners "$owner" \
+        --filters "Name=name,Values=RHEL-${major}.*_HVM-*-x86_64-*-Hourly2-GP3" "Name=state,Values=available" \
+        --query 'Images[].[Name,ImageId]' --output text | sort -V | tail -1 | awk '{print $2}'
+}
