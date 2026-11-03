@@ -82,9 +82,15 @@ done
 yq --version 2>&1 | grep -q 'mikefarah/yq.* v4\.' \
     || { echo "Error: needs Go yq v4 (dnf install yq). Found: $(yq --version 2>&1 | head -1)" >&2; exit 1; }
 
-[ -f "$PULL_SECRET_FILE" ] || { echo "Error: pull secret not found: ${PULL_SECRET_FILE}" >&2; exit 1; }
+# The cluster needs the mirror registry's credentials in its pull secret.
+PS_FILE="${INSTALL_PULL_SECRET_FILE:-}"
+if [ ! -s "$PS_FILE" ]; then
+    echo "Error: ${PS_FILE:-INSTALL_PULL_SECRET_FILE} not found. It is the Red Hat pull secret plus the mirror" >&2
+    echo "       registry's credentials; create it (and the CA) with scripts/30-fetch-mirror-credentials.sh." >&2
+    exit 1
+fi
 [ -f "$SSH_KEY_FILE" ]     || { echo "Error: ssh public key not found: ${SSH_KEY_FILE}" >&2; exit 1; }
-jq -e . "$PULL_SECRET_FILE" >/dev/null || { echo "Error: pull secret is not valid JSON." >&2; exit 1; }
+jq -e . "$PS_FILE" >/dev/null || { echo "Error: ${PS_FILE} is not valid JSON." >&2; exit 1; }
 
 if [ ! -s "$MIRROR_CA_FILE" ]; then
     cat >&2 <<EOF
@@ -200,7 +206,7 @@ V_WKTYPE="$AWS_WORKER_TYPE" V_WKREPS="$AWS_WORKER_REPLICAS" \
 V_CRED="$CREDENTIALS_MODE" V_FIPS="$FIPS" V_STREAM="$OS_IMAGE_STREAM" V_PUBLISH="$PUBLISH" \
 V_IDMS="$IDMS_JSON" V_CA="$(cat "$MIRROR_CA_FILE")" \
 V_DOMAIN="$BASE_DOMAIN" V_NAME="$CLUSTER_NAME" \
-V_PS="$(jq -c . "$PULL_SECRET_FILE")" V_KEY="$(cat "$SSH_KEY_FILE")" \
+V_PS="$(jq -c . "$PS_FILE")" V_KEY="$(cat "$SSH_KEY_FILE")" \
 yq -i '
       .platform.aws.region = strenv(V_REGION)
     | .platform.aws.vpc.subnets = env(V_SUBNETS)
