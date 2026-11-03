@@ -88,5 +88,4 @@ imageContentSources:
 - mirrors:
   - <local_registry>/<local_repository_name>/release
   source: quay.io/openshift-release-dev/ocp-v5.0-art-dev
-# NOTE(ours): imageContentSources is deprecated in favor of imageDigestSources (same shape). Jira OSDOCS-22739 shows
-#   a three-entry set including ocp-v4.0-art-dev; the safest rule is [C]: paste ALL entries from idms-oc-mirror.yaml.
+# NOTE(ours): imageContentSources is deprecated in favor of imageDigestSources (same shape). The safest rule is [C]: paste ALL entries from idms-oc-mirror.yaml.

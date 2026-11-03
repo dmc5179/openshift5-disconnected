@@ -245,11 +245,10 @@ section "11. OpenShift / RHCOS specifics"
 if [ "$IS_COREOS" = 1 ] || [ -d /etc/crio ]; then
   RT=$(grep -rhsE '^\s*default_runtime\s*=' /etc/crio/crio.conf /etc/crio/crio.conf.d/ 2>/dev/null | tail -1)
   case "$RT" in
-    *runc*) warn "CRI-O default_runtime is runc. RHCOS 10 does not ship runc; OCP 5 keeps runc pools on rhel-9 and runc must move to crun before switching to RHCOS 10." "OCP 5.0 docs (hcp-dual-stream-container-runtime, unreleased); OSDOCS-21852" ;;
+    *runc*) warn "CRI-O default_runtime is runc. RHCOS 10 does not ship runc; OCP 5 keeps runc pools on rhel-9 and runc must move to crun before switching to RHCOS 10." "OpenShift 5.0 docs (hcp-dual-stream-container-runtime.adoc, openshift-docs enterprise-5.0)" ;;
     *) pass "CRI-O default runtime: ${RT:-default (crun)}" ;;
   esac
   info "On OCP, FIPS is set by install-config 'fips: true' (immutable). Workload images inherit host FIPS mode; rebuild images carrying OpenSSL 1.1 or SHA-1 dependencies."
-  info "OCP 5 default TLS group X25519MLKEM768 is not FIPS-approved and is ignored in FIPS mode (classic groups are used). [OSDOCS-23869, internal]"
   have podman && info "Tip: scan workload images with this script, e.g. podman run --rm -v ./fips-rhel10-readiness.sh:/s:Z <image> bash /s --quiet"
 else
   info "Not an RHCOS/CRI-O host - skipping OpenShift checks"
