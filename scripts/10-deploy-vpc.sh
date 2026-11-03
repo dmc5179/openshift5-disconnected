@@ -80,6 +80,30 @@ fi
 jq -e '.auths | length > 0' "$PULL_SECRET_FILE" >/dev/null \
     || { echo "Error: ${PULL_SECRET_FILE} is not a pull secret (no .auths)." >&2; exit 1; }
 
+# --- bastion AMI: newest Red Hat RHEL <major> for the region ---------------------
+case "${BASTION_RHEL_VERSION:-9}" in 9|10) ;; *) echo "Error: BASTION_RHEL_VERSION must be 9 or 10." >&2; exit 1 ;; esac
+if [ -z "${BASTION_AMI_ID:-}" ]; then
+    case "$AWS_PARTITION" in
+        aws)        RH_OWNER="309956199498" ;;
+        aws-us-gov) RH_OWNER="219670896067" ;;
+        *) echo "Error: no Red Hat AMI owner known for partition ${AWS_PARTITION}; set BASTION_AMI_ID." >&2; exit 1 ;;
+    esac
+    BASTION_AMI_ID="$(aws ec2 describe-images --owners "$RH_OWNER" \
+        --filters "Name=name,Values=RHEL-${BASTION_RHEL_VERSION}.*_HVM-*-x86_64-*-Hourly2-GP3" "Name=state,Values=available" \
+        --query 'sort_by(Images,&CreationDate)[-1].ImageId' --output text)"
+    [ -n "$BASTION_AMI_ID" ] && [ "$BASTION_AMI_ID" != "None" ] \
+        || { echo "Error: no RHEL ${BASTION_RHEL_VERSION} AMI found in ${REGION}; set BASTION_AMI_ID." >&2; exit 1; }
+fi
+BASTION_AMI_NAME="$(aws ec2 describe-images --image-ids "$BASTION_AMI_ID" --query 'Images[0].Name' --output text)"
+echo "==> Bastion AMI: ${BASTION_AMI_ID} (${BASTION_AMI_NAME})"
+
+# --- SSH source ------------------------------------------------------------------
+if [ -z "${ALLOWED_SSH_CIDR:-}" ]; then
+    my_ip="$(curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" \
+        || { echo "Error: cannot determine this machine's public IP; set ALLOWED_SSH_CIDR." >&2; exit 1; }
+    ALLOWED_SSH_CIDR="${my_ip}/32"
+fi
+
 echo "==> Validating template"
 aws cloudformation validate-template --template-body "file://${VPC_TEMPLATE}" >/dev/null
 
@@ -93,6 +117,7 @@ jq -n \
     --arg cidr "$VPC_CIDR" --arg azs "$VPC_AZ_COUNT" --arg bits "$VPC_SUBNET_BITS" \
     --arg key "$EC2_KEY_NAME" --arg ver "$OCP_VERSION" \
     --arg nat "$PROXY_INSTANCE_TYPE" --arg bas "$BASTION_INSTANCE_TYPE" --arg reg "$REGISTRY_INSTANCE_TYPE" \
+    --arg ami "$BASTION_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" \
     --rawfile ps "$PULL_SECRET_FILE" '
     [ {ParameterKey:"VpcCidr",               ParameterValue:$cidr},
       {ParameterKey:"AvailabilityZoneCount", ParameterValue:$azs},
@@ -102,6 +127,8 @@ jq -n \
       {ParameterKey:"NATInstanceType",       ParameterValue:$nat},
       {ParameterKey:"BastionInstanceType",   ParameterValue:$bas},
       {ParameterKey:"RegistryInstanceType",  ParameterValue:$reg},
+      {ParameterKey:"BastionAmiId",          ParameterValue:$ami},
+      {ParameterKey:"AllowedSshCidr",        ParameterValue:$ssh},
       {ParameterKey:"PullSecretJson",        ParameterValue:($ps | fromjson | tojson)} ]' > "$PARAMS_FILE"
 
 echo "==> Stack ${VPC_STACK_NAME} parameters:"
@@ -125,6 +152,12 @@ show_failures() {
 if status="$(aws cloudformation describe-stacks --stack-name "$VPC_STACK_NAME" \
               --query 'Stacks[0].StackStatus' --output text 2>/dev/null)"; then
     echo "==> Stack ${VPC_STACK_NAME} already exists (${status}); reusing it"
+    existing_ami="$(aws cloudformation describe-stacks --stack-name "$VPC_STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='BastionImageId'].OutputValue" --output text 2>/dev/null || true)"
+    if [ -n "$existing_ami" ] && [ "$existing_ami" != "None" ] && [ "$existing_ami" != "$BASTION_AMI_ID" ]; then
+        echo "    Note: the existing bastion runs ${existing_ami}, not ${BASTION_AMI_ID}. The bastion's RHEL version"
+        echo "    is fixed at creation; delete and recreate the stack to change it."
+    fi
     case "$status" in
         CREATE_COMPLETE|UPDATE_COMPLETE) print_outputs; exit 0 ;;
         CREATE_IN_PROGRESS)

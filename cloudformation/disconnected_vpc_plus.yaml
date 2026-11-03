@@ -90,6 +90,21 @@ Parameters:
     Default: t3.large
     Description: Instance type to use to launch the Bastion Instance.
 
+  BastionAmiId:
+    Type: String
+    Default: ""
+    Description: >-
+      AMI for the bastion. Blank = the RHEL 9 AMI in RHELMap. scripts/10-deploy-vpc.sh passes the newest
+      Red Hat RHEL 9 or RHEL 10 AMI for the region (BASTION_RHEL_VERSION). The bastion's RHEL major version
+      is chosen at creation; it is not upgraded in place.
+
+  AllowedSshCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    AllowedPattern: ^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\/([0-9]|[1-2][0-9]|3[0-2]))$
+    Description: >-
+      CIDR allowed to SSH to the bastion. scripts/10-deploy-vpc.sh sets it to the caller's public IP /32.
+
   RegistryInstanceType:
     Type: String
     Default: t3.large
@@ -128,6 +143,7 @@ Mappings:
 
 
 Conditions:
+  HasBastionAmi: !Not [!Equals ["", !Ref BastionAmiId]]
   DoAz3: !Equals [3, !Ref AvailabilityZoneCount]
   DoAz2: !Or [!Equals [2, !Ref AvailabilityZoneCount], Condition: DoAz3]
 
@@ -594,7 +610,7 @@ Resources:
     Properties:
       GroupDescription: Allows SSH connections to the bastion node
       SecurityGroupIngress:
-      - CidrIp: 0.0.0.0/0
+      - CidrIp: !Ref AllowedSshCidr
         FromPort: 22
         ToPort: 22
         IpProtocol: tcp
@@ -616,7 +632,7 @@ Resources:
   HelperInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]
+      ImageId: !If [HasBastionAmi, !Ref BastionAmiId, !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]]
       IamInstanceProfile: !Ref HelperInstanceProfile
       InstanceType: !Ref BastionInstanceType
       KeyName: !Ref KeyName
@@ -970,6 +986,10 @@ Outputs:
   ProxyPrivateIp:
     Description: Private IP of the Squid NAT / egress-filter instance.
     Value: !GetAtt NATInstance.PrivateIp
+
+  BastionImageId:
+    Description: AMI the bastion was launched from (records the RHEL major version chosen at creation).
+    Value: !If [HasBastionAmi, !Ref BastionAmiId, !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]]
 
   S3BucketName:
     Description: Staging bucket the bastion uploads tool tarballs to. Must be emptied before the stack can be deleted.
