@@ -300,6 +300,57 @@ spec:
   disableAllDefaultSources: true
 EOF
 fi
+if [ "${DISABLE_DEFAULT_CATALOGS:-false}" = "true" ]; then
+    # OLM v1: disableAllDefaultSources only removes the OLM v0 CatalogSources; the
+    # default ClusterCatalogs stay Available and keep pulling from registry.redhat.io
+    # (observed on 5.0.0). Documented switch: spec.availabilityMode: Unavailable
+    # (openshift-docs olmv1-disabling-a-default-catalog). Created day 0 here; if the
+    # cluster-olm-operator resets them, fall back to `oc patch` after install.
+    cat_ver="${OCP_CHANNEL##*-}"
+    for c in redhat certified community; do
+        cat > "${D0}/99-olmv1-clustercatalog-openshift-${c}-operators-unavailable.yaml" <<EOF
+# Disconnected: keep the default OLM v1 catalog from polling registry.redhat.io.
+apiVersion: olm.operatorframework.io/v1
+kind: ClusterCatalog
+metadata:
+  name: openshift-${c}-operators
+spec:
+  availabilityMode: Unavailable
+  source:
+    type: Image
+    image:
+      ref: registry.redhat.io/redhat/${c}-operator-index:v${cat_ver}
+EOF
+    done
+fi
+if [ "${TRUST_MIRROR_FOR_IMAGESTREAMS:-false}" = "true" ]; then
+    # additionalTrustBundle covers node pulls, not ImageStream imports: without this,
+    # imports fail x509 against the mirror and fall back to quay.io (observed 5.0.0).
+    # Key format for a registry with a port: <host>..<port>.
+    {
+        cat <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mirror-registry-ca
+  namespace: openshift-config
+data:
+  ${REGISTRY_HOST}..${MIRROR_REGISTRY_PORT}: |
+EOF
+        sed 's/^/    /' "$MIRROR_CA_FILE"
+    } > "${D0}/99-configmap-mirror-registry-ca.yaml"
+    cat > "${D0}/99-image-config-additional-trusted-ca.yaml" <<'EOF'
+# Trust the mirror registry for ImageStream imports and builds.
+apiVersion: config.openshift.io/v1
+kind: Image
+metadata:
+  name: cluster
+spec:
+  additionalTrustedCA:
+    name: mirror-registry-ca
+EOF
+fi
+for f in "$D0"/*.yaml; do yq -e '.kind' "$f" >/dev/null || { echo "Error: invalid day-0 manifest ${f}" >&2; exit 1; }; done
 echo "    day-0 manifests: $(ls "$D0" | tr '\n' ' ')"
 
 echo "    baseDomain=${BASE_DOMAIN} cluster=${CLUSTER_NAME} target=${TARGET_ENV} publish=${PUBLISH} stream=${OS_IMAGE_STREAM} fips=${FIPS} insights-disabled=${DISABLE_INSIGHTS}"
