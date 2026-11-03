@@ -59,6 +59,10 @@ case "${FIPS,,}" in
     *) echo "Error: fips must be on or off (got '${FIPS}')." >&2; exit 2 ;;
 esac
 OS_IMAGE_STREAM="${OPT_STREAM:-${OS_IMAGE_STREAM:-rhel-10}}"
+case "${CREDENTIALS_MODE:-Manual}" in
+    Manual|Mint|Passthrough) ;;
+    *) echo "Error: CREDENTIALS_MODE must be Manual, Mint or Passthrough (got '${CREDENTIALS_MODE}')." >&2; exit 2 ;;
+esac
 
 CREDS="${ROOT}/secrets/aws.env"
 [ -f "$CREDS" ] || { echo "Error: credentials not found: ${CREDS}" >&2; exit 1; }
@@ -253,3 +257,7 @@ fi
 
 echo "    baseDomain=${BASE_DOMAIN} cluster=${CLUSTER_NAME} target=${TARGET_ENV} publish=${PUBLISH} stream=${OS_IMAGE_STREAM} fips=${FIPS} insights-disabled=${DISABLE_INSIGHTS}"
 echo "==> Wrote ${OUTPUT_FILE} (mode 600: contains the pull secret)"
+if [ "$CREDENTIALS_MODE" = "Manual" ]; then
+    echo "    credentialsMode Manual (STS): next run scripts/20-prepare-sts.sh (ccoctl), then add its"
+    echo "    manifests/ and tls/ to the install directory after 'openshift-install create manifests'."
+fi
