@@ -115,7 +115,7 @@ trap 'rm -rf "$TMPDIR_RUN"' EXIT
 
 if [ -z "$CA_FILE" ]; then
     echo "==> Fetching the registry root CA over ssh (${SSH_USER}@${REG_HOST}:${QUAY_CA_PATH})"
-    SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
+    SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
     [ -n "$SSH_KEY" ] && SSH_OPTS+=(-i "$SSH_KEY")
     CA_FILE="${TMPDIR_RUN}/rootCA.pem"
     # shellcheck disable=SC2029  # the path is meant to expand locally
@@ -182,6 +182,9 @@ ARGS=(--v2 -c "$ISC" --workspace "file://${WORKSPACE}" "docker://${REG}/${NAMESP
 # Strip REGISTRY_* from oc-mirror's environment (see the header).
 UNSET=()
 while IFS= read -r v; do UNSET+=(-u "$v"); done < <(compgen -e | grep '^REGISTRY_' || true)
+
+# umask 077 above protects the authfile; oc-mirror itself warns unless it is 022.
+umask 022
 
 echo "==> oc-mirror ${ARGS[*]}"
 start="$(date +%s)"

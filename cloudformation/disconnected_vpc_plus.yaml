@@ -470,8 +470,10 @@ Resources:
             # Redirect the user-data output to the console logs
             exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-            # Apply the latest security patches
-            yum update -y --security
+            # Full update, not --security: a security-only update pulled the RHEL 9.8 kernel and
+            # systemd but left the RHEL 9.5 SELinux policy, which then denies systemd's BPF device
+            # filter after a reboot and breaks every container (CF-22).
+            dnf update -y
             yum install -y unzip vim wget firewalld
 
             # Trust the RHUI certs
@@ -656,7 +658,8 @@ Resources:
           - |
             #!/bin/bash -x
 
-            dnf update -y --security
+            # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
+            dnf update -y
 
             # DNF install loop due to slow uptime for NAT gateway
             MAX_ATTEMPTS=10
@@ -673,10 +676,13 @@ Resources:
 
             region=${AWS::Region}
 
-            echo '${pull_secret}' > /tmp/pull-secret.json
-            echo '${pull_secret}' > ~ec2-user/pull-secret.json
+            # Mode 600 before the secret is written (was world-readable, CF-9).
+            ( umask 077
+              echo '${pull_secret}' > /tmp/pull-secret.json
+              echo '${pull_secret}' > ~ec2-user/pull-secret.json )
 
             chown ec2-user:ec2-user ~ec2-user/pull-secret.json
+            chmod 600 /tmp/pull-secret.json ~ec2-user/pull-secret.json
 
             wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz
             wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-install-rhel9-amd64.tar.gz
@@ -811,7 +817,8 @@ Resources:
             export HOME="/root"
             export USER="root"
 
-            dnf update -y --security
+            # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
+            dnf update -y
 
             # DNF install loop due to slow uptime for NAT gateway
             MAX_ATTEMPTS=10
