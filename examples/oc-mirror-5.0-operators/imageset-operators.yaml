@@ -1,0 +1,30 @@
+# oc-mirror v2 ImageSetConfiguration: OpenShift 5.0 operators only (no platform).
+# Same operator structure as scripts/generate-imageset-config.sh (MIRROR_OPERATORS=
+# "web-terminal:fast,devworkspace-operator:fast,kubernetes-nmstate-operator:stable,
+#  openshift-cert-manager-operator:stable-v1"), with the platform section removed
+# because the 5.0.0 release is already in the mirror registry.
+#
+# Channels are the default channels listed on 2026-11-03 with
+#   oc-mirror --v2 list operators --catalog=registry.redhat.io/redhat/redhat-operator-index:v5.0 --package=<pkg>
+# devworkspace-operator is listed explicitly: web-terminal requires it
+# (olm.package.required devworkspace-operator >=0.6.0).
+# openshift-cert-manager-operator: AllNamespaces install mode and no package/GVK
+# dependencies, so it is a candidate for an OLM v1 ClusterExtension (not lab-tested).
+kind: ImageSetConfiguration
+apiVersion: mirror.openshift.io/v2alpha1
+mirror:
+  operators:
+    - catalog: registry.redhat.io/redhat/redhat-operator-index:v5.0
+      packages:
+        - name: web-terminal
+          channels:
+            - name: fast
+        - name: devworkspace-operator
+          channels:
+            - name: fast
+        - name: kubernetes-nmstate-operator
+          channels:
+            - name: stable
+        - name: openshift-cert-manager-operator
+          channels:
+            - name: stable-v1
