@@ -1,5 +1,15 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: Template for creating a disconnected VPC in up to 3 AZs
+Description: Simulated disconnected VPC (1-3 AZs) with a Squid egress filter, bastion and mirror registry, for OpenShift 5
+
+# Copied from openshift4-disconnected/cloudformation/disconnected_vpc/disconnected_vpc_plus.yaml
+# (sha256 6bfcc1a1...) on 2026-11-03 and adapted for OpenShift 5. Changes are tracked in AGENTS.md (CF-*).
+#
+# Topology:
+#   public subnet  - Squid NAT/egress-filter instance, bastion ("connected side"), internet gateway
+#   private subnet - mirror registry and the OpenShift cluster ("disconnected side"); its only egress is
+#                    the Squid instance, which allows the domains in /etc/squid/whitelist.txt
+#
+# The Outputs section is the interface the scripts in scripts/ read. Keep the output names stable.
 
 Parameters:
 
@@ -14,7 +24,7 @@ Parameters:
     ConstraintDescription: "The number of availability zones. (Min: 1, Max: 3)"
     MinValue: 1
     MaxValue: 3
-    Default: 3
+    Default: 1
     Description: "How many AZs to create VPC subnets for. (Min: 1, Max: 3)"
     Type: Number
 
@@ -31,13 +41,25 @@ Parameters:
     Description: Name of RSA key for EC2 access for testing and troubleshooting.
 
   OpenShiftVersion:
-    Default: "4.19.3"
-    Description: OpenShift Version Number
+    Default: "5.0.0"
+    Description: >-
+      OpenShift version whose oc and openshift-install are downloaded from
+      mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/<version>/ (5.x builds are published there too).
+    Type: String
+
+  OcMirrorUrl:
+    Default: "https://mirror.openshift.com/pub/cgw/oc-mirror/latest/oc-mirror-rhel9-linux-amd64.tar.gz"
+    Description: >-
+      oc-mirror v2 tarball. From OpenShift 5.0 oc-mirror is no longer published per release under
+      clients/ocp/<version>/ (that path returns 404); it ships asynchronously under pub/cgw/oc-mirror/.
     Type: String
 
   PullSecretJson:
-    Description: OpenShift 4 Pull Secret JSON
+    Description: >-
+      OpenShift pull secret JSON. NoEcho hides it from the console and describe-stacks, but it is still
+      written into the bastion's user data, which anyone with ec2:DescribeInstanceAttribute can read (CF-9).
     Type: String
+    NoEcho: true
     Default: "{}"
 
   NATInstanceType:
@@ -130,6 +152,10 @@ Resources:
       Tags:
       - Key: Name
         Value: !Sub 'Public Subnet - ${AWS::StackName}'
+      # Load balancer subnet discovery by the AWS cloud controller. Not an ownership tag. Without it,
+      # LoadBalancer Services fail with "could not find any suitable subnets for creating the ELB".
+      - Key: kubernetes.io/role/elb
+        Value: "1"
       AvailabilityZone: !Select
       - 0
       - Fn::GetAZs: !Ref "AWS::Region"
@@ -144,6 +170,10 @@ Resources:
       Tags:
       - Key: Name
         Value: !Sub 'Public Subnet 2 - ${AWS::StackName}'
+      # Load balancer subnet discovery by the AWS cloud controller. Not an ownership tag. Without it,
+      # LoadBalancer Services fail with "could not find any suitable subnets for creating the ELB".
+      - Key: kubernetes.io/role/elb
+        Value: "1"
       AvailabilityZone: !Select
       - 1
       - Fn::GetAZs: !Ref "AWS::Region"
@@ -158,6 +188,10 @@ Resources:
       Tags:
       - Key: Name
         Value: !Sub 'Public Subnet 3 - ${AWS::StackName}'
+      # Load balancer subnet discovery by the AWS cloud controller. Not an ownership tag. Without it,
+      # LoadBalancer Services fail with "could not find any suitable subnets for creating the ELB".
+      - Key: kubernetes.io/role/elb
+        Value: "1"
       AvailabilityZone: !Select
       - 2
       - Fn::GetAZs: !Ref "AWS::Region"
@@ -215,6 +249,10 @@ Resources:
       Tags:
       - Key: Name
         Value: !Sub 'Private Subnet - ${AWS::StackName}'
+      # Load balancer subnet discovery by the AWS cloud controller. Not an ownership tag. Without it,
+      # LoadBalancer Services fail with "could not find any suitable subnets for creating the ELB".
+      - Key: kubernetes.io/role/internal-elb
+        Value: "1"
       AvailabilityZone: !Select
       - 0
       - Fn::GetAZs: !Ref "AWS::Region"
@@ -251,6 +289,10 @@ Resources:
       Tags:
       - Key: Name
         Value: !Sub 'Private Subnet 2 - ${AWS::StackName}'
+      # Load balancer subnet discovery by the AWS cloud controller. Not an ownership tag. Without it,
+      # LoadBalancer Services fail with "could not find any suitable subnets for creating the ELB".
+      - Key: kubernetes.io/role/internal-elb
+        Value: "1"
       AvailabilityZone: !Select
       - 1
       - Fn::GetAZs: !Ref "AWS::Region"
@@ -290,6 +332,10 @@ Resources:
       Tags:
       - Key: Name
         Value: !Sub 'Private Subnet 3 - ${AWS::StackName}'
+      # Load balancer subnet discovery by the AWS cloud controller. Not an ownership tag. Without it,
+      # LoadBalancer Services fail with "could not find any suitable subnets for creating the ELB".
+      - Key: kubernetes.io/role/internal-elb
+        Value: "1"
       AvailabilityZone: !Select
       - 2
       - Fn::GetAZs: !Ref "AWS::Region"
@@ -619,7 +665,9 @@ Resources:
             wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz
             wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-install-rhel9-amd64.tar.gz
 
-            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/oc-mirror.rhel9.tar.gz
+            # oc-mirror ships asynchronously from OCP 5.0 (no longer under clients/ocp/<version>/).
+            # Saved under the old file name so the registry node's extract step is unchanged.
+            wget -q -O oc-mirror.rhel9.tar.gz '${ocm_url}'
             
             wget -q https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/2.0.9/mirror-registry-amd64.tar.gz
 
@@ -630,7 +678,6 @@ Resources:
             /usr/local/bin/aws s3 cp --quiet openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz "s3://${s3_bucket}/"
             /usr/local/bin/aws s3 cp --quiet openshift-install-rhel9-amd64.tar.gz "s3://${s3_bucket}/"
             /usr/local/bin/aws s3 cp --quiet oc-mirror.rhel9.tar.gz "s3://${s3_bucket}/"
-            /usr/local/bin/aws s3 cp --quiet docker_registry.tar "s3://${s3_bucket}/"
             /usr/local/bin/aws s3 cp --quiet mirror-registry-amd64.tar.gz "s3://${s3_bucket}/"
 
             tar -xzf openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz
@@ -652,6 +699,7 @@ Resources:
 
           - pull_secret: !Ref PullSecretJson
             ocp_ver: !Ref OpenShiftVersion
+            ocm_url: !Ref OcMirrorUrl
             s3_bucket: !Ref S3Bucket
             signal_url: !Ref HelperInstanceWaitHandle
 
@@ -769,7 +817,6 @@ Resources:
             /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz" .
             /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/openshift-install-rhel9-amd64.tar.gz" .
             /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/oc-mirror.rhel9.tar.gz" .
-            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/docker_registry.tar" .
             /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/mirror-registry-amd64.tar.gz" .
 
             tar -xzf openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz
@@ -815,9 +862,37 @@ Resources:
 ######################################################################################################
 
 Outputs:
+  # ---------------------------------------------------------------------------
+  # Interface read by scripts/generate-install-config.sh and friends. Keep names stable.
+  # ---------------------------------------------------------------------------
   VpcId:
     Description: ID of the new VPC.
     Value: !Ref VPC
+
+  VpcCidr:
+    Description: CIDR of the VPC (install-config networking.machineNetwork).
+    Value: !GetAtt VPC.CidrBlock
+
+  AvailabilityZone:
+    Description: Availability zone of the first subnet pair.
+    Value: !GetAtt PrivateSubnet.AvailabilityZone
+
+  AvailabilityZones:
+    Description: Comma-separated availability zones of the private subnets, in order.
+    Value: !Join
+    - ","
+    - - !GetAtt PrivateSubnet.AvailabilityZone
+      - !If [DoAz2, !GetAtt PrivateSubnet2.AvailabilityZone, !Ref "AWS::NoValue"]
+      - !If [DoAz3, !GetAtt PrivateSubnet3.AvailabilityZone, !Ref "AWS::NoValue"]
+
+  PublicSubnetId:
+    Description: ID of the first public subnet (Squid instance and bastion).
+    Value: !Ref PublicSubnet
+
+  PrivateSubnetId:
+    Description: ID of the first private subnet (registry and cluster).
+    Value: !Ref PrivateSubnet
+
   PublicSubnetIds:
     Description: Subnet IDs of the public subnets.
     Value:
@@ -825,6 +900,7 @@ Outputs:
         ",",
         [!Ref PublicSubnet, !If [DoAz2, !Ref PublicSubnet2, !Ref "AWS::NoValue"], !If [DoAz3, !Ref PublicSubnet3, !Ref "AWS::NoValue"]]
       ]
+
   PrivateSubnetIds:
     Description: Subnet IDs of the private subnets.
     Value:
@@ -832,3 +908,69 @@ Outputs:
         ",",
         [!Ref PrivateSubnet, !If [DoAz2, !Ref PrivateSubnet2, !Ref "AWS::NoValue"], !If [DoAz3, !Ref PrivateSubnet3, !Ref "AWS::NoValue"]]
       ]
+
+  InstallConfigSubnets:
+    Description: >-
+      Paste-ready platform.aws.vpc.subnets block for a PRIVATE (publish: Internal) cluster. Only the private
+      subnets are listed, and each carries every role a private cluster needs. ControlPlaneExternalLB is
+      forbidden when publish is Internal (installer pkg/types/aws/validation/platform.go, release-5.0).
+    Value: !If
+    - DoAz3
+    - !Sub |-
+      platform:
+        aws:
+          region: ${AWS::Region}
+          vpc:
+            subnets:
+            - id: ${PrivateSubnet}
+              roles: [{type: ClusterNode}, {type: BootstrapNode}, {type: IngressControllerLB}, {type: ControlPlaneInternalLB}]
+            - id: ${PrivateSubnet2}
+              roles: [{type: ClusterNode}, {type: BootstrapNode}, {type: IngressControllerLB}, {type: ControlPlaneInternalLB}]
+            - id: ${PrivateSubnet3}
+              roles: [{type: ClusterNode}, {type: BootstrapNode}, {type: IngressControllerLB}, {type: ControlPlaneInternalLB}]
+    - !If
+      - DoAz2
+      - !Sub |-
+        platform:
+          aws:
+            region: ${AWS::Region}
+            vpc:
+              subnets:
+              - id: ${PrivateSubnet}
+                roles: [{type: ClusterNode}, {type: BootstrapNode}, {type: IngressControllerLB}, {type: ControlPlaneInternalLB}]
+              - id: ${PrivateSubnet2}
+                roles: [{type: ClusterNode}, {type: BootstrapNode}, {type: IngressControllerLB}, {type: ControlPlaneInternalLB}]
+      - !Sub |-
+        platform:
+          aws:
+            region: ${AWS::Region}
+            vpc:
+              subnets:
+              - id: ${PrivateSubnet}
+                roles: [{type: ClusterNode}, {type: BootstrapNode}, {type: IngressControllerLB}, {type: ControlPlaneInternalLB}]
+
+  BastionPublicIp:
+    Description: Public IP of the bastion ("connected side"; SSH as ec2-user).
+    Value: !GetAtt HelperInstance.PublicIp
+
+  BastionPublicDnsName:
+    Description: Public DNS name of the bastion.
+    Value: !GetAtt HelperInstance.PublicDnsName
+
+  RegistryPrivateDnsName:
+    Description: >-
+      Private DNS name of the mirror-registry node. mirror-registry serves on port 8443 with a certificate
+      for this name (it uses hostname -f).
+    Value: !GetAtt RegistryInstance.PrivateDnsName
+
+  RegistryPrivateIp:
+    Description: Private IP of the mirror-registry node.
+    Value: !GetAtt RegistryInstance.PrivateIp
+
+  ProxyPrivateIp:
+    Description: Private IP of the Squid NAT / egress-filter instance.
+    Value: !GetAtt NATInstance.PrivateIp
+
+  S3BucketName:
+    Description: Staging bucket the bastion uploads tool tarballs to. Must be emptied before the stack can be deleted.
+    Value: !Ref S3Bucket
