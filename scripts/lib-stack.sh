@@ -36,3 +36,15 @@ stack_ready() {
 bastion_ssh()  { ssh "${SSH_OPTS[@]}" "ec2-user@${BASTION_IP}" "$@"; }
 registry_ssh() { ssh "${SSH_OPTS[@]}" "${PROXY_OPT[@]}" "ec2-user@${REGISTRY_HOST}" "$@"; }
 registry_scp() { scp -q "${SSH_OPTS[@]}" "${PROXY_OPT[@]}" "$@"; }
+
+# The host that runs openshift-install (INSTALL_HOST in cluster.env: registry|bastion).
+install_host_name() { if [ "${INSTALL_HOST:-registry}" = "bastion" ]; then echo "$BASTION_IP"; else echo "$REGISTRY_HOST"; fi; }
+install_ssh() { if [ "${INSTALL_HOST:-registry}" = "bastion" ]; then bastion_ssh "$@"; else registry_ssh "$@"; fi; }
+install_scp() {   # install_scp <local files...> <remote path relative to ~>
+    local dest="${*: -1}" n=$(( $# - 1 ))
+    if [ "${INSTALL_HOST:-registry}" = "bastion" ]; then
+        scp -q "${SSH_OPTS[@]}" "${@:1:$n}" "ec2-user@${BASTION_IP}:${dest}"
+    else
+        scp -q "${SSH_OPTS[@]}" "${PROXY_OPT[@]}" "${@:1:$n}" "ec2-user@${REGISTRY_HOST}:${dest}"
+    fi
+}

@@ -267,6 +267,41 @@ if grep -qE '^[^#]*CHANGEME' "$OUTPUT_FILE"; then
     exit 1
 fi
 
+# --- day-0 manifests --------------------------------------------------------------
+D0="${CLUSTER_DIR}/day0-manifests"
+rm -rf "$D0"; mkdir -p "$D0"
+if [ "${DISABLE_LIGHTSPEED:-false}" = "true" ]; then
+    cat > "${D0}/99-console-disable-lightspeed.yaml" <<'EOF'
+# Hide the OpenShift Lightspeed AI entry point in the web console from first boot.
+# Capability names per openshift/api operator/v1 types_console.go (5.0):
+# LightspeedButton, GettingStartedBanner, GuidedTour.
+apiVersion: operator.openshift.io/v1
+kind: Console
+metadata:
+  name: cluster
+spec:
+  managementState: Managed
+  customization:
+    capabilities:
+    - name: LightspeedButton
+      visibility:
+        state: Disabled
+EOF
+fi
+if [ "${DISABLE_DEFAULT_CATALOGS:-false}" = "true" ]; then
+    cat > "${D0}/99-operatorhub-disable-default-sources.yaml" <<'EOF'
+# Disconnected: the default catalogs point at registry.redhat.io. Use catalogs
+# mirrored with oc-mirror instead (its CatalogSource / ClusterCatalog output).
+apiVersion: config.openshift.io/v1
+kind: OperatorHub
+metadata:
+  name: cluster
+spec:
+  disableAllDefaultSources: true
+EOF
+fi
+echo "    day-0 manifests: $(ls "$D0" | tr '\n' ' ')"
+
 echo "    baseDomain=${BASE_DOMAIN} cluster=${CLUSTER_NAME} target=${TARGET_ENV} publish=${PUBLISH} stream=${OS_IMAGE_STREAM} fips=${FIPS} insights-disabled=${DISABLE_INSIGHTS}"
 echo "==> Wrote ${OUTPUT_FILE} (mode 600: contains the pull secret)"
 if [ "$CREDENTIALS_MODE" = "Manual" ]; then
