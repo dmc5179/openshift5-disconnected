@@ -41,7 +41,7 @@ RDIR="ocp-install/${CLUSTER_NAME}"           # relative to ec2-user's home on th
 LOG_LEVEL="${LOG_LEVEL:-info}"
 
 remote_status() {
-    registry_ssh "pgrep -f 'openshift-install.*create cluster' >/dev/null && echo 'installer: RUNNING' || echo 'installer: not running';
+    registry_ssh "pgrep -f '[o]penshift-install .*create cluster' >/dev/null && echo 'installer: RUNNING' || echo 'installer: not running';
                   [ -f ~/${RDIR}/install.exit ] && echo \"exit code: \$(cat ~/${RDIR}/install.exit)\";
                   tail -n 8 ~/${RDIR}/.openshift_install.log 2>/dev/null | sed -E 's/^time=\"([^\"]+)\" level=([a-z]+) msg=/\\1 \\2 /' | cut -c1-200"
 }
@@ -55,7 +55,7 @@ start)
         [ -d "${CC}/manifests" ] && [ -d "${CC}/tls" ] \
             || { echo "Error: credentialsMode Manual but no ccoctl output in ${CC}; run scripts/20-prepare-sts.sh." >&2; exit 1; }
     fi
-    if registry_ssh "test -e ~/${RDIR}/metadata.json || pgrep -f 'openshift-install.*create cluster' >/dev/null"; then
+    if registry_ssh "test -e ~/${RDIR}/metadata.json || pgrep -f '[o]penshift-install .*create cluster' >/dev/null"; then
         echo "Error: ~/${RDIR} on ${REGISTRY_HOST} already holds an install (or one is running)." >&2
         echo "       Check it with: $0 status   - destroy it before starting again." >&2
         exit 1
@@ -90,7 +90,7 @@ start)
                   setsid nohup bash -c 'set -a; . ~/ocp-install/aws.env; set +a;
                       openshift-install create cluster --dir . --log-level=${LOG_LEVEL} > install.out 2>&1; echo \$? > install.exit' \
                       >/dev/null 2>&1 < /dev/null &
-                  sleep 5; pgrep -f 'openshift-install.*create cluster' >/dev/null && echo '    started'"
+                  sleep 5; pgrep -f '[o]penshift-install .*create cluster' >/dev/null && echo '    started'"
     echo "    Follow it with: $0 status   |   $0 wait"
     ;;
 status)
@@ -98,7 +98,7 @@ status)
     ;;
 wait)
     SECONDS=0
-    while registry_ssh "pgrep -f 'openshift-install.*create cluster' >/dev/null"; do
+    while registry_ssh "pgrep -f '[o]penshift-install .*create cluster' >/dev/null"; do
         line="$(registry_ssh "tail -n 1 ~/${RDIR}/.openshift_install.log 2>/dev/null" | sed -E 's/^time="[^"]+" level=([a-z]+) msg=/\1 /' | cut -c1-160)"
         printf '%3d min  %s\n' $((SECONDS/60)) "$line"
         sleep 120
