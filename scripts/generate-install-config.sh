@@ -233,15 +233,21 @@ yq -i '
     "$OUTPUT_FILE"
 
 # Insights ("Red Hat Lightspeed" health reporting) off: an explicit capability
-# list = 5.0 vCurrent minus Insights. Names checked against the installer's
-# release-5.0 openshift/api. Ingress, CloudCredential and CloudControllerManager
-# are mandatory on AWS (pkg/types/validation/installconfig.go).
+# list = everything the 5.0 ClusterVersion API accepts on a Default feature set,
+# minus Insights. Ingress, CloudCredential and CloudControllerManager are
+# mandatory on AWS (installer pkg/types/validation/installconfig.go).
+#
+# NOT CompatibilityRequirements or ClusterAPI: they are in the installer's
+# vendored vCurrent set and pass install-config validation, but the cluster's
+# ClusterVersion CRD rejects them on a Default (non-TechPreview) cluster. The
+# ClusterVersion object is then never created, the CVO waits forever, and the
+# install stalls at bootstrap with NotReady masters (observed 2026-11-03).
 if [ "$DISABLE_INSIGHTS" = "true" ]; then
     yq -i '.capabilities = {"baselineCapabilitySet": "None", "additionalEnabledCapabilities": [
         "baremetal", "Console", "marketplace", "Storage", "openshift-samples", "CSISnapshot",
         "NodeTuning", "MachineAPI", "Build", "DeploymentConfig", "ImageRegistry",
         "OperatorLifecycleManager", "OperatorLifecycleManagerV1", "CloudCredential",
-        "Ingress", "CloudControllerManager", "CompatibilityRequirements", "ClusterAPI"]}' "$OUTPUT_FILE"
+        "Ingress", "CloudControllerManager"]}' "$OUTPUT_FILE"
 fi
 
 # ISO: the AWS API CA goes into the trust bundle too; a custom RHCOS AMI when given.
