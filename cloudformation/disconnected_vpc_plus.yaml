@@ -47,6 +47,15 @@ Parameters:
       mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/<version>/ (5.x builds are published there too).
     Type: String
 
+  ClientRhelBuild:
+    Type: String
+    Default: rhel9
+    AllowedValues: [rhel9, rhel10]
+    Description: >-
+      RHEL build of oc/kubectl and ccoctl to install (openshift-client-linux-amd64-<build>-<version>,
+      ccoctl-linux-<build>-<version>). Only rhel8/rhel9 builds are published as of 2026-11; rhel10 is
+      accepted for when they ship (AGENTS.md B-2). openshift-install is rhel9-only.
+
   OcMirrorUrl:
     Default: "https://mirror.openshift.com/pub/cgw/oc-mirror/latest/oc-mirror-rhel9-linux-amd64.tar.gz"
     Description: >-
@@ -474,6 +483,11 @@ Resources:
             # systemd but left the RHEL 9.5 SELinux policy, which then denies systemd's BPF device
             # filter after a reboot and breaks every container (CF-22).
             dnf update -y
+            # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
+            if rpm -q fapolicyd >/dev/null 2>&1; then
+              systemctl disable --now fapolicyd || true
+              systemctl mask fapolicyd || true
+            fi
             yum install -y unzip vim wget firewalld
 
             # Trust the RHUI certs
@@ -660,6 +674,11 @@ Resources:
 
             # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
             dnf update -y
+            # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
+            if rpm -q fapolicyd >/dev/null 2>&1; then
+              systemctl disable --now fapolicyd || true
+              systemctl mask fapolicyd || true
+            fi
 
             # DNF install loop due to slow uptime for NAT gateway
             MAX_ATTEMPTS=10
@@ -684,12 +703,13 @@ Resources:
             chown ec2-user:ec2-user ~ec2-user/pull-secret.json
             chmod 600 /tmp/pull-secret.json ~ec2-user/pull-secret.json
 
-            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz
+            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz
             wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-install-rhel9-amd64.tar.gz
 
             # oc-mirror ships asynchronously from OCP 5.0 (no longer under clients/ocp/<version>/).
             # Saved under the old file name so the registry node's extract step is unchanged.
             wget -q -O oc-mirror.rhel9.tar.gz '${ocm_url}'
+            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/ccoctl-linux-${client_build}-${ocp_ver}.tar.gz
             
             wget -q https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/2.0.9/mirror-registry-amd64.tar.gz
 
@@ -697,20 +717,22 @@ Resources:
             unzip awscliv2.zip
             ./aws/install
             
-            /usr/local/bin/aws s3 cp --quiet openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz "s3://${s3_bucket}/"
+            /usr/local/bin/aws s3 cp --quiet openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz "s3://${s3_bucket}/"
             /usr/local/bin/aws s3 cp --quiet openshift-install-rhel9-amd64.tar.gz "s3://${s3_bucket}/"
             /usr/local/bin/aws s3 cp --quiet oc-mirror.rhel9.tar.gz "s3://${s3_bucket}/"
+            /usr/local/bin/aws s3 cp --quiet ccoctl-linux-${client_build}-${ocp_ver}.tar.gz "s3://${s3_bucket}/"
             /usr/local/bin/aws s3 cp --quiet mirror-registry-amd64.tar.gz "s3://${s3_bucket}/"
 
-            tar -xzf openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz
+            tar -xzf openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz
             tar -xzf openshift-install-rhel9-amd64.tar.gz
             tar -xzf oc-mirror.rhel9.tar.gz
+            tar -xzf ccoctl-linux-${client_build}-${ocp_ver}.tar.gz
             rm -f README.md
 
-            sudo mv oc openshift-install-fips kubectl oc-mirror /usr/local/bin
-            sudo chown root.root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror
-            sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror
-            sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror
+            sudo mv oc openshift-install-fips kubectl oc-mirror ccoctl /usr/local/bin
+            sudo chown root.root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
+            sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
+            sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo ln -sf /usr/local/bin/openshift-install-fips /usr/local/bin/openshift-install
 
             # Signal to the registry node that we're done mirroring to S3
@@ -721,6 +743,7 @@ Resources:
 
           - pull_secret: !Ref PullSecretJson
             ocp_ver: !Ref OpenShiftVersion
+            client_build: !Ref ClientRhelBuild
             ocm_url: !Ref OcMirrorUrl
             s3_bucket: !Ref S3Bucket
             signal_url: !Ref HelperInstanceWaitHandle
@@ -819,6 +842,11 @@ Resources:
 
             # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
             dnf update -y
+            # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
+            if rpm -q fapolicyd >/dev/null 2>&1; then
+              systemctl disable --now fapolicyd || true
+              systemctl mask fapolicyd || true
+            fi
 
             # DNF install loop due to slow uptime for NAT gateway
             MAX_ATTEMPTS=10
@@ -837,21 +865,23 @@ Resources:
 
             region=${AWS::Region}
 
-            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz" .
+            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz" .
             /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/openshift-install-rhel9-amd64.tar.gz" .
             /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/oc-mirror.rhel9.tar.gz" .
+            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/ccoctl-linux-${client_build}-${ocp_ver}.tar.gz" .
             /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/mirror-registry-amd64.tar.gz" .
 
-            tar -xzf openshift-client-linux-amd64-rhel9-${ocp_ver}.tar.gz
+            tar -xzf openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz
             tar -xzf openshift-install-rhel9-amd64.tar.gz
             tar -xzf oc-mirror.rhel9.tar.gz
+            tar -xzf ccoctl-linux-${client_build}-${ocp_ver}.tar.gz
             tar -xzf mirror-registry-amd64.tar.gz
             rm -f README.md
 
-            sudo mv oc openshift-install-fips kubectl oc-mirror /usr/local/bin
-            sudo chown root.root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror
-            sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror
-            sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror
+            sudo mv oc openshift-install-fips kubectl oc-mirror ccoctl /usr/local/bin
+            sudo chown root.root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
+            sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
+            sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo ln -sf /usr/local/bin/openshift-install-fips /usr/local/bin/openshift-install
 
             #sudo fips-mode-setup --enable
@@ -879,6 +909,7 @@ Resources:
             #setsebool -P container_manage_cgroup on
 
           - ocp_ver: !Ref OpenShiftVersion
+            client_build: !Ref ClientRhelBuild
             s3_bucket: !Ref S3Bucket
 
 # End Registry Node

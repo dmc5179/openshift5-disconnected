@@ -116,6 +116,25 @@ fi
 BASTION_AMI_NAME="$(aws ec2 describe-images --image-ids "$BASTION_AMI_ID" --query 'Images[0].Name' --output text)"
 echo "==> Bastion AMI: ${BASTION_AMI_ID} (${BASTION_AMI_NAME})"
 
+# --- client tool builds for the bastion's RHEL version ---------------------------
+# oc/kubectl and ccoctl come per RHEL build (rhel8/rhel9 today), oc-mirror from
+# pub/cgw/oc-mirror/. A RHEL 10 bastion gets rhel10 builds once they exist on the
+# mirror, otherwise the rhel9 ones (whether those run on RHEL 10: AGENTS.md B-2).
+CLIENT_BUILD="rhel${BASTION_RHEL_VERSION}"
+OCP_CLIENTS="https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OCP_VERSION}"
+have_url() { curl -fsSIL --max-time 20 -o /dev/null "$1"; }
+if [ "$CLIENT_BUILD" = "rhel10" ] && ! have_url "${OCP_CLIENTS}/ccoctl-linux-rhel10-${OCP_VERSION}.tar.gz"; then
+    echo "    Note: no rhel10 builds of oc/ccoctl for ${OCP_VERSION}; the RHEL 10 bastion gets the rhel9 builds (AGENTS.md B-2)."
+    CLIENT_BUILD="rhel9"
+fi
+OC_MIRROR_URL="https://mirror.openshift.com/pub/cgw/oc-mirror/latest/oc-mirror-${CLIENT_BUILD}-linux-amd64.tar.gz"
+for u in "${OCP_CLIENTS}/openshift-client-linux-amd64-${CLIENT_BUILD}-${OCP_VERSION}.tar.gz" \
+         "${OCP_CLIENTS}/ccoctl-linux-${CLIENT_BUILD}-${OCP_VERSION}.tar.gz" \
+         "${OCP_CLIENTS}/openshift-install-rhel9-amd64.tar.gz" "$OC_MIRROR_URL"; do
+    have_url "$u" || { echo "Error: not found on the mirror: ${u}" >&2; exit 1; }
+done
+echo "==> Bastion tools: ${CLIENT_BUILD} builds of oc/kubectl, ccoctl and oc-mirror; openshift-install rhel9"
+
 # --- SSH source ------------------------------------------------------------------
 if [ -z "${ALLOWED_SSH_CIDR:-}" ]; then
     my_ip="$(curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" \
@@ -137,6 +156,7 @@ jq -n \
     --arg key "$EC2_KEY_NAME" --arg ver "$OCP_VERSION" \
     --arg nat "$PROXY_INSTANCE_TYPE" --arg bas "$BASTION_INSTANCE_TYPE" --arg reg "$REGISTRY_INSTANCE_TYPE" \
     --arg ami "$BASTION_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" \
+    --arg cb "$CLIENT_BUILD" --arg ocm "$OC_MIRROR_URL" \
     --rawfile ps "$PULL_SECRET_FILE" '
     [ {ParameterKey:"VpcCidr",               ParameterValue:$cidr},
       {ParameterKey:"AvailabilityZoneCount", ParameterValue:$azs},
@@ -148,6 +168,8 @@ jq -n \
       {ParameterKey:"RegistryInstanceType",  ParameterValue:$reg},
       {ParameterKey:"BastionAmiId",          ParameterValue:$ami},
       {ParameterKey:"AllowedSshCidr",        ParameterValue:$ssh},
+      {ParameterKey:"ClientRhelBuild",       ParameterValue:$cb},
+      {ParameterKey:"OcMirrorUrl",           ParameterValue:$ocm},
       {ParameterKey:"PullSecretJson",        ParameterValue:($ps | fromjson | tojson)} ]' > "$PARAMS_FILE"
 
 echo "==> Stack ${VPC_STACK_NAME} parameters:"
