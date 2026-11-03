@@ -89,10 +89,8 @@ Parameters:
     - m5.2xlarge
     - c4.large
     - c4.xlarge
-    - c4.large
     - c5.large
     - c5.xlarge
-    - c5.large
 
   BastionInstanceType:
     Type: String
@@ -298,7 +296,6 @@ Resources:
 
   PrivateSubnetNATRoute:
     Type: AWS::EC2::Route
-    DependsOn: NATInstance
     Properties:
        RouteTableId:
          Ref: PrivateRouteTable
@@ -341,7 +338,6 @@ Resources:
   PrivateSubnetNATRoute2:
     Type: AWS::EC2::Route
     Condition: DoAz2
-    DependsOn: NATInstance
     Properties:
        RouteTableId:
          Ref: PrivateRouteTable2
@@ -384,7 +380,6 @@ Resources:
   PrivateSubnetNATRoute3:
     Type: AWS::EC2::Route
     Condition: DoAz3
-    DependsOn: NATInstance
     Properties:
        RouteTableId:
          Ref: PrivateRouteTable3
@@ -488,7 +483,10 @@ Resources:
               systemctl disable --now fapolicyd || true
               systemctl mask fapolicyd || true
             fi
-            yum install -y unzip vim wget firewalld
+            # firewalld is not used here: the interception rules below are managed by iptables-services,
+            # and firewalld.service conflicts with iptables.service (CF-7).
+            yum install -y unzip vim wget
+            systemctl disable --now firewalld 2>/dev/null || true
 
             # Trust the RHUI certs
             cp /etc/pki/rhui/cdn.redhat.com-chain.crt /etc/pki/ca-trust/source/anchors/cdn.redhat.com-chain.crt
@@ -504,18 +502,24 @@ Resources:
             instanceid=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
             /usr/local/bin/aws ec2 modify-instance-attribute --no-source-dest-check --instance-id $instanceid --region $region
 
-            # Install and start Squid
-            yum install -y squid net-tools
+            # Install Squid, and iptables-nft + iptables-services so the interception rules can be
+            # persisted (CF-7). iptables is not guaranteed to be on a minimal RHEL 9 image.
+            yum install -y squid net-tools iptables-nft iptables-services
 
             cp -a /etc/squid /etc/squid_orig
 
-            # Create a SSL certificate for the SslBump Squid module
+            # Create a SSL certificate for the SslBump Squid module. Traffic is only peeked and spliced
+            # (never decrypted), but https_port ssl-bump still needs a certificate.
             mkdir /etc/squid/ssl
             pushd /etc/squid/ssl
             openssl genrsa -out squid.key 4096
             openssl req -new -key squid.key -out squid.csr -subj "/C=US/ST=VA/L=squid/O=squid/CN=squid"
             openssl x509 -req -days 3650 -in squid.csr -signkey squid.key -out squid.crt
-            cat squid.key squid.crt >> squid.pem
+            cat squid.key squid.crt > squid.pem
+            chown -R root:squid /etc/squid/ssl
+            chmod 750 /etc/squid/ssl
+            chmod 640 /etc/squid/ssl/*
+            popd
 
             echo '.amazonaws.com' > /etc/squid/whitelist.txt
             echo '.cloudfront.net' >> /etc/squid/whitelist.txt
@@ -527,54 +531,94 @@ Resources:
             visible_hostname squid
             cache deny all
 
-            # Log format and rotation
-            logformat squid %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %ssl::>sni %Sh/%<a %mt
+            # Log format and rotation. The built-in "squid" format cannot be redefined, so use our own
+            # name; it adds the TLS SNI (%ssl::>sni) after the URL. %>a is the client IP (CF-8).
+            logformat egress %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %ssl::>sni %Sh/%<a %mt
+            access_log daemon:/var/log/squid/access.log logformat=egress
             logfile_rotate 10
             debug_options rotate=10
 
-            # Handle HTTP requests
-            http_port 3128
-            http_port 3129 intercept
+            # Ports:
+            #   3128 explicit proxy (HTTP and CONNECT). Not opened by the security group today.
+            #   3129 intercepted HTTP  (iptables REDIRECT from port 80)
+            #   3130 intercepted HTTPS (iptables REDIRECT from port 443), peeked for SNI, never decrypted
+            http_port 3128 name=explicit
+            http_port 3129 intercept name=http_intercept
+            https_port 3130 cert=/etc/squid/ssl/squid.pem ssl-bump intercept name=https_intercept
+            sslcrtd_program /usr/lib64/squid/security_file_certgen -s /var/spool/squid/ssl_db -M 4MB
 
-            # Handle HTTPS requests
-            https_port 3130 cert=/etc/squid/ssl/squid.pem ssl-bump intercept
             acl SSL_port port 443
-            http_access allow SSL_port
+            acl CONNECT method CONNECT
+            acl intercepted_https myportname https_intercept
+            acl instance_metadata dst 169.254.169.254
+            acl allowed_http_sites dstdomain "/etc/squid/whitelist.txt"
+            acl allowed_https_sites ssl::server_name "/etc/squid/whitelist.txt"
             acl step1 at_step SslBump1
             acl step2 at_step SslBump2
             acl step3 at_step SslBump3
-            ssl_bump peek step1 all
 
-            # Deny requests to proxy instance metadata
-            acl instance_metadata dst 169.254.169.254
+            # Deny requests to proxy instance metadata. Must stay ahead of every allow rule.
             http_access deny instance_metadata
 
-            # Filter HTTP requests based on the whitelist
-            acl allowed_http_sites dstdomain "/etc/squid/whitelist.txt"
+            # Explicit proxy: CONNECT only to port 443 (CF-6).
+            http_access deny CONNECT !SSL_port
+
+            # Intercepted HTTPS: at this point Squid only knows the destination IP (a "fake" CONNECT),
+            # so allow it here and filter on the SNI with the ssl_bump rules below. This used to be
+            # "http_access allow SSL_port", which also let explicit CONNECTs on 3128 reach any
+            # host:443 (CF-6). It is now limited to the intercept port.
+            http_access allow intercepted_https
+
+            # HTTP (explicit or intercepted) and explicit CONNECT: allowlisted domains only.
             http_access allow allowed_http_sites
 
-            # Filter HTTPS requests based on the whitelist
-            acl allowed_https_sites ssl::server_name "/etc/squid/whitelist.txt"
+            http_access deny all
+
+            # Filter intercepted HTTPS on the SNI against the allowlist: peek, then splice the allowed
+            # ones and terminate the rest.
+            ssl_bump peek step1 all
             ssl_bump peek step2 allowed_https_sites
             ssl_bump splice step3 allowed_https_sites
             ssl_bump terminate step2 all
 
-            http_access deny all
-
-
             EOF
 
+            # The certificate DB must belong to the squid user, which runs the certgen helpers (CF-8).
+            rm -rf /var/spool/squid/ssl_db
             /usr/lib64/squid/security_file_certgen -c -s /var/spool/squid/ssl_db -M 4MB
+            chown -R squid:squid /var/spool/squid/ssl_db
+            restorecon -R /var/spool/squid /etc/squid || true
 
+            # Validate the configuration before starting; -e makes a parse error fail the user data (CF-8).
+            /usr/sbin/squid -k parse
             systemctl enable --now squid
-
-            /usr/sbin/squid -k parse && /usr/sbin/squid -k reconfigure
 
             sleep 5
 
-            # TODO: These rules are not permanent and are lost when instance is rebooted
-            iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 3129
-            iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 3130
+            # Redirect ports 80/443 arriving from the private subnets to Squid's intercept ports, and
+            # persist the rules with iptables-services so they survive a reboot (CF-7). Forwarding is
+            # off (no ip_forward), so traffic that is not redirected to Squid cannot leave; FORWARD DROP
+            # makes that explicit. The source/dest check is disabled above so the private route
+            # table can point at this instance.
+            cat > /etc/sysconfig/iptables << 'EOF'
+            *nat
+            :PREROUTING ACCEPT [0:0]
+            :INPUT ACCEPT [0:0]
+            :OUTPUT ACCEPT [0:0]
+            :POSTROUTING ACCEPT [0:0]
+            -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 3129
+            -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 3130
+            COMMIT
+            *filter
+            :INPUT ACCEPT [0:0]
+            :FORWARD DROP [0:0]
+            :OUTPUT ACCEPT [0:0]
+            COMMIT
+            EOF
+            chmod 600 /etc/sysconfig/iptables
+            restorecon /etc/sysconfig/iptables || true
+            systemctl enable --now iptables
+            iptables -t nat -S PREROUTING
 
 
 # End Nat Instance
@@ -672,6 +716,19 @@ Resources:
           - |
             #!/bin/bash -x
 
+            # Report the result to HelperInstanceWaitCondition. The registry node waits on it, so a
+            # failed download must fail the stack instead of signalling SUCCESS (CF-14).
+            signal() {
+              curl -sS -X PUT -H 'Content-Type:' --data-binary \
+                "{\"Status\" : \"$1\",\"Reason\" : \"$2\",\"UniqueId\" : \"ID1234\",\"Data\" : \"$2\"}" \
+                "${signal_url}"
+            }
+            fail() {
+              echo "FATAL: $*"
+              signal FAILURE "Bastion user data failed: $*"
+              exit 1
+            }
+
             # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
             dnf update -y
             # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
@@ -690,6 +747,7 @@ Resources:
                 sleep 10
                 ((attempt_num++))
             done
+            [ $attempt_num -le $MAX_ATTEMPTS ] || fail "dnf install of the base packages"
 
             cd /tmp
 
@@ -703,42 +761,40 @@ Resources:
             chown ec2-user:ec2-user ~ec2-user/pull-secret.json
             chmod 600 /tmp/pull-secret.json ~ec2-user/pull-secret.json
 
-            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz
-            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-install-rhel9-amd64.tar.gz
+            # Every download, upload and extract is checked; any failure signals FAILURE (CF-14).
+            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz || fail "download openshift-client ${client_build} ${ocp_ver}"
+            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-install-rhel9-amd64.tar.gz || fail "download openshift-install ${ocp_ver}"
 
             # oc-mirror ships asynchronously from OCP 5.0 (no longer under clients/ocp/<version>/).
             # Saved under the old file name so the registry node's extract step is unchanged.
-            wget -q -O oc-mirror.rhel9.tar.gz '${ocm_url}'
-            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/ccoctl-linux-${client_build}-${ocp_ver}.tar.gz
+            wget -q -O oc-mirror.rhel9.tar.gz '${ocm_url}' || fail "download oc-mirror"
+            wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/ccoctl-linux-${client_build}-${ocp_ver}.tar.gz || fail "download ccoctl ${client_build} ${ocp_ver}"
             
-            wget -q https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/2.0.9/mirror-registry-amd64.tar.gz
+            wget -q https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/2.0.9/mirror-registry-amd64.tar.gz || fail "download mirror-registry"
 
-            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-            unzip awscliv2.zip
-            ./aws/install
+            curl -fsS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" || fail "download AWS CLI"
+            unzip -q awscliv2.zip || fail "unzip AWS CLI"
+            ./aws/install || fail "install AWS CLI"
             
-            /usr/local/bin/aws s3 cp --quiet openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz "s3://${s3_bucket}/"
-            /usr/local/bin/aws s3 cp --quiet openshift-install-rhel9-amd64.tar.gz "s3://${s3_bucket}/"
-            /usr/local/bin/aws s3 cp --quiet oc-mirror.rhel9.tar.gz "s3://${s3_bucket}/"
-            /usr/local/bin/aws s3 cp --quiet ccoctl-linux-${client_build}-${ocp_ver}.tar.gz "s3://${s3_bucket}/"
-            /usr/local/bin/aws s3 cp --quiet mirror-registry-amd64.tar.gz "s3://${s3_bucket}/"
+            for f in openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz openshift-install-rhel9-amd64.tar.gz \
+                     oc-mirror.rhel9.tar.gz ccoctl-linux-${client_build}-${ocp_ver}.tar.gz mirror-registry-amd64.tar.gz; do
+              /usr/local/bin/aws s3 cp --quiet "$f" "s3://${s3_bucket}/" || fail "upload $f to S3"
+            done
 
-            tar -xzf openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz
-            tar -xzf openshift-install-rhel9-amd64.tar.gz
-            tar -xzf oc-mirror.rhel9.tar.gz
-            tar -xzf ccoctl-linux-${client_build}-${ocp_ver}.tar.gz
+            for f in openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz openshift-install-rhel9-amd64.tar.gz \
+                     oc-mirror.rhel9.tar.gz ccoctl-linux-${client_build}-${ocp_ver}.tar.gz; do
+              tar -xzf "$f" || fail "extract $f"
+            done
             rm -f README.md
 
-            sudo mv oc openshift-install-fips kubectl oc-mirror ccoctl /usr/local/bin
+            sudo mv oc openshift-install-fips kubectl oc-mirror ccoctl /usr/local/bin || fail "install the OpenShift CLIs"
             sudo chown root.root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo ln -sf /usr/local/bin/openshift-install-fips /usr/local/bin/openshift-install
 
             # Signal to the registry node that we're done mirroring to S3
-            curl -X PUT -H 'Content-Type:' --data-binary \
-            '{"Status" : "SUCCESS","Reason" : "Configuration Complete","UniqueId" : "ID1234","Data" : "Application has completed configuration."}' \
-            "${signal_url}"
+            signal SUCCESS "Configuration Complete"
 
 
           - pull_secret: !Ref PullSecretJson
@@ -781,6 +837,11 @@ Resources:
           - Effect: "Allow"
             Action: "s3:*"
             Resource: "*"
+          # Lets the registry's user data report success or failure to the CreationPolicy on
+          # RegistryInstance (CF-14). Limited to this stack.
+          - Effect: "Allow"
+            Action: "cloudformation:SignalResource"
+            Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
 
   RegistryInstanceProfile:
     Type: "AWS::IAM::InstanceProfile"
@@ -810,6 +871,13 @@ Resources:
   RegistryInstance:
     Type: AWS::EC2::Instance
     DependsOn: HelperInstanceWaitCondition
+    # The stack is not CREATE_COMPLETE until the user data below has installed mirror-registry, Quay
+    # answers its health check and ec2-user is logged in (CF-14). Without this the stack completed
+    # while the node was still in dnf update.
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT60M
     Properties:
       ImageId: !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]
       IamInstanceProfile: !Ref RegistryInstanceProfile
@@ -840,6 +908,19 @@ Resources:
             export HOME="/root"
             export USER="root"
 
+            # Report the result to the CreationPolicy (CF-14). Needs the AWS CLI, which is installed
+            # below; a failure before that point ends in the PT60M signal timeout instead.
+            signal() {
+              /usr/local/bin/aws cloudformation signal-resource --region ${AWS::Region} \
+                --stack-name ${AWS::StackName} --logical-resource-id RegistryInstance \
+                --unique-id "$(hostname -s)" --status "$1"
+            }
+            fail() {
+              echo "FATAL: $*"
+              signal FAILURE
+              exit 1
+            }
+
             # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
             dnf update -y
             # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
@@ -860,25 +941,21 @@ Resources:
             done
             
             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-            unzip awscliv2.zip
+            unzip -q awscliv2.zip
             ./aws/install
+            [ -x /usr/local/bin/aws ] || { echo "FATAL: AWS CLI not installed; cannot signal, stack will time out"; exit 1; }
+            [ $attempt_num -le $MAX_ATTEMPTS ] || fail "dnf install of the base packages"
 
             region=${AWS::Region}
 
-            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz" .
-            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/openshift-install-rhel9-amd64.tar.gz" .
-            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/oc-mirror.rhel9.tar.gz" .
-            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/ccoctl-linux-${client_build}-${ocp_ver}.tar.gz" .
-            /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/mirror-registry-amd64.tar.gz" .
-
-            tar -xzf openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz
-            tar -xzf openshift-install-rhel9-amd64.tar.gz
-            tar -xzf oc-mirror.rhel9.tar.gz
-            tar -xzf ccoctl-linux-${client_build}-${ocp_ver}.tar.gz
-            tar -xzf mirror-registry-amd64.tar.gz
+            for f in openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz openshift-install-rhel9-amd64.tar.gz \
+                     oc-mirror.rhel9.tar.gz ccoctl-linux-${client_build}-${ocp_ver}.tar.gz mirror-registry-amd64.tar.gz; do
+              /usr/local/bin/aws s3 cp --quiet "s3://${s3_bucket}/$f" . || fail "download $f from S3"
+              tar -xzf "$f" || fail "extract $f"
+            done
             rm -f README.md
 
-            sudo mv oc openshift-install-fips kubectl oc-mirror ccoctl /usr/local/bin
+            sudo mv oc openshift-install-fips kubectl oc-mirror ccoctl /usr/local/bin || fail "install the OpenShift CLIs"
             sudo chown root.root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
@@ -888,12 +965,30 @@ Resources:
             #Don't install mirror-registry until after FIPS is enabled
             mkdir -p /opt/quay-root /opt/quay-root/data /opt/quay-root/sqlite
             # --autoApprove should remove the need for a tty but is not yet supported in the released version
-            ./mirror-registry install --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite 2>&1 | tee mirror-registry-install.log
+            # The install log holds the generated init password ("credentials (init, <pw>)"). It goes to a
+            # root-only file, not to stdout, because user-data output is copied to the EC2 console log.
+            # scripts/30-fetch-mirror-credentials.sh reads the password from this file (CF-15).
+            ( umask 077; : > /tmp/mirror-registry-install.log )
+            ./mirror-registry install --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite \
+              > /tmp/mirror-registry-install.log 2>&1
+            mr_rc=$?
+            sed -E 's/credentials \(init, [^)]*\)/credentials (init, <redacted>)/' /tmp/mirror-registry-install.log
+            [ $mr_rc -eq 0 ] || fail "mirror-registry install exited $mr_rc"
             #./mirror-registry install 2>&1 | tee mirror-registry.log # probably should do this as the ec2-user
 
-            cp /opt/quay-root/quay-rootCA/rootCA.pem /etc/pki/ca-trust/source/anchors/quay.pem
+            cp /opt/quay-root/quay-rootCA/rootCA.pem /etc/pki/ca-trust/source/anchors/quay.pem || fail "Quay root CA not found"
             update-ca-trust
             update-ca-trust extract
+
+            # Quay must answer its health check before the stack is reported complete (CF-14).
+            registry_host="$(hostname -f):8443"
+            health=000
+            for _ in $(seq 1 30); do
+              health=$(curl -s -o /dev/null -w '%{http_code}' "https://$registry_host/health/instance")
+              [ "$health" = "200" ] && break
+              sleep 10
+            done
+            [ "$health" = "200" ] || fail "Quay health check https://$registry_host/health/instance returned $health"
 
             # Configure the firewall
             #sudo systemctl enable --now firewalld
@@ -902,11 +997,29 @@ Resources:
             #sudo firewall-cmd --add-service=http  --permanent
             #sudo firewall-cmd --reload
 
-            sudo -u ec2-user mkdir ~ec2-user/.docker
-            sudo -u ec2-user podman login --compat-auth-file ~ec2-user/.docker/auth.json --username=init --password= $(hostname -f):8443 
+            # Log ec2-user in to the registry (docker-format auth file, read by podman and oc-mirror).
+            # The old "--password= <host>" passed an empty password and podman then tried to prompt
+            # ("inappropriate ioctl for device"). Read the generated password from the install log and
+            # pass it on stdin. xtrace is off so the password never reaches the console log (CF-15).
+            sudo -u ec2-user mkdir -p -m 700 ~ec2-user/.docker
+            set +x
+            init_pw=$(sed -n 's/.*credentials (init, \([^)]*\)).*/\1/p' /tmp/mirror-registry-install.log | tail -1)
+            if [ -z "$init_pw" ]; then
+              set -x
+              fail "no 'credentials (init, ...)' line in /tmp/mirror-registry-install.log"
+            fi
+            printf '%s' "$init_pw" | sudo -u ec2-user podman login --compat-auth-file ~ec2-user/.docker/auth.json \
+              --username init --password-stdin "$registry_host"
+            login_rc=$?
+            unset init_pw
+            set -x
+            [ $login_rc -eq 0 ] || fail "podman login to $registry_host as init"
+            chmod 600 ~ec2-user/.docker/auth.json
 
             # Configure SELinux to allow containers in systemd services
             #setsebool -P container_manage_cgroup on
+
+            signal SUCCESS
 
           - ocp_ver: !Ref OpenShiftVersion
             client_build: !Ref ClientRhelBuild
