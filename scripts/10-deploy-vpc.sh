@@ -76,6 +76,25 @@ if ! aws ec2 describe-key-pairs --key-names "$EC2_KEY_NAME" >/dev/null 2>&1; the
     exit 1
 fi
 
+# The key pair's private key must be here, or nothing can SSH to the bastion
+# (and through it to the registry). For an IMPORTED RSA key, AWS's fingerprint
+# is the MD5 of the DER SubjectPublicKeyInfo - not ssh-keygen's MD5, which hashes
+# the OpenSSH wire format. ssh-keygen -e -m PKCS8 gives the DER without openssl.
+# (AWS-generated key pairs use a SHA-1 of the private key instead; not handled.)
+[ -f "${SSH_PRIVATE_KEY:-}" ] || { echo "Error: SSH_PRIVATE_KEY not found: ${SSH_PRIVATE_KEY:-unset}" >&2; exit 1; }
+aws_fp="$(aws ec2 describe-key-pairs --key-names "$EC2_KEY_NAME" --query 'KeyPairs[0].KeyFingerprint' --output text)"
+local_fp="$(ssh-keygen -y -P '' -f "$SSH_PRIVATE_KEY" 2>/dev/null > "${PARAMS_DIR:-/tmp}/.pub.$$" \
+            && ssh-keygen -e -m PKCS8 -f "${PARAMS_DIR:-/tmp}/.pub.$$" | grep -v '^-----' | base64 -d | md5sum \
+            | awk '{print $1}' | sed 's/../&:/g; s/:$//')" || true
+rm -f "${PARAMS_DIR:-/tmp}/.pub.$$"
+if [ "$aws_fp" != "$local_fp" ]; then
+    echo "Error: key pair '${EC2_KEY_NAME}' (${aws_fp}) does not match ${SSH_PRIVATE_KEY} (${local_fp:-unreadable or passphrase-protected})." >&2
+    echo "       Import the matching public key, e.g.:" >&2
+    echo "         aws ec2 import-key-pair --key-name <name> --public-key-material fileb://${SSH_PRIVATE_KEY}.pub" >&2
+    exit 1
+fi
+echo "==> Key pair ${EC2_KEY_NAME} matches ${SSH_PRIVATE_KEY}"
+
 [ -f "$PULL_SECRET_FILE" ] || { echo "Error: pull secret not found: ${PULL_SECRET_FILE}" >&2; exit 1; }
 jq -e '.auths | length > 0' "$PULL_SECRET_FILE" >/dev/null \
     || { echo "Error: ${PULL_SECRET_FILE} is not a pull secret (no .auths)." >&2; exit 1; }
