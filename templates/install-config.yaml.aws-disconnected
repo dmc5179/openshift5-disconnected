@@ -1,0 +1,71 @@
+# Template install-config for a PRIVATE, DISCONNECTED OpenShift 5 cluster on AWS,
+# in the VPC built by cloudformation/disconnected_vpc_plus.yaml.
+#
+# CHANGEME values are filled in by scripts/generate-install-config.sh from the
+# stack outputs, cluster.env and secrets/. Do not install from this file directly.
+apiVersion: v1
+baseDomain: CHANGEME
+credentialsMode: Mint
+compute:
+- architecture: amd64
+  hyperthreading: Enabled
+  name: worker
+  platform:
+    aws:
+      type: m6i.xlarge
+      zones:
+      - CHANGEME
+  replicas: 2
+controlPlane:
+  architecture: amd64
+  hyperthreading: Enabled
+  name: master
+  platform:
+    aws:
+      type: m6i.xlarge
+      zones:
+      - CHANGEME
+  replicas: 3
+metadata:
+  name: CHANGEME
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  # Patched to VPC_CIDR. Never overlap 100.64.0.0/16 (OVN-Kubernetes).
+  machineNetwork:
+  - cidr: CHANGEME
+  networkType: OVNKubernetes
+  serviceNetwork:
+  - 172.30.0.0/16
+platform:
+  aws:
+    region: CHANGEME
+    # Replaced with the stack's InstallConfigSubnets output: private subnets only,
+    # each with ClusterNode, BootstrapNode, IngressControllerLB and
+    # ControlPlaneInternalLB. ControlPlaneExternalLB is forbidden when publish is Internal.
+    vpc:
+      subnets:
+      - id: CHANGEME
+        roles:
+        - type: ClusterNode
+        - type: BootstrapNode
+        - type: IngressControllerLB
+        - type: ControlPlaneInternalLB
+# Private cluster: internal load balancers and a private hosted zone only.
+publish: Internal
+fips: false
+# rhel-10 (OCP 5 default) or rhel-9. Top-level field.
+osImageStream: rhel-10
+# Replaced with the mirror registry mappings. OCP 5 payloads also reference
+# quay.io/openshift-release-dev/ocp-v5.0-art-dev; without that mapping bootstrap
+# pulls from quay.io and a disconnected install fails (5.0 docs,
+# ipi-modify-install-config-for-a-disconnected-registry.adoc). After mirroring,
+# compare with oc-mirror's working-dir/cluster-resources/idms-oc-mirror.yaml.
+imageDigestSources:
+- mirrors:
+  - CHANGEME
+  source: quay.io/openshift-release-dev/ocp-release
+additionalTrustBundle: CHANGEME
+pullSecret: ''
+sshKey: ''
