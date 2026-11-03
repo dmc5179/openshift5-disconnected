@@ -22,3 +22,14 @@
 
 # Scratch git worktrees created for background agents.
 /.claude/worktrees/
+
+# Jira tickets: drafts, filed-ticket copies and notes taken from internal Jira.
+# Kept on disk, never committed (internal content; this repository is public).
+/jira/
+# These two also carry content from internal Jira tickets, so they stay local
+# until a scrubbed public version exists.
+/AGENTS.md
+/ocp5-disconnected-findings.md
+
+# Tool binaries fetched by scripts (ccoctl, oc) - release-matched, large.
+/bin/
