@@ -94,8 +94,10 @@ Parameters:
 
   BastionInstanceType:
     Type: String
-    Default: t3.large
-    Description: Instance type to use to launch the Bastion Instance.
+    Default: m6i.2xlarge
+    Description: >-
+      Instance type for the bastion. It runs oc-mirror and openshift-install (with its local control plane)
+      at the same time; a t3.large (2 vCPU, 8 GB, burstable) was too small.
 
   BastionAmiId:
     Type: String
