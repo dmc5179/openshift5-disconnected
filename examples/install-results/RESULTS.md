@@ -93,6 +93,35 @@ to `Removed`. To avoid even this probe, leave `openshift-samples` out of the ena
 99-image-config-additional-trusted-ca.yaml
 ```
 
+## Install 4: air-gapped FIPS install host, installer from the mirror, hardened stack (2026-11-04)
+
+Fresh stack from the hardened template: m6i.2xlarge bastion, IMDSv2 required, scoped IAM, the NAT readiness
+signal. The **registry node** (RHEL 9.8 in FIPS mode, no internet route) was the install host. Its
+`openshift-install-fips` was **extracted from the mirrored release payload** (`scripts/38-extract-installer.sh`),
+so nothing came from the internet. `DISABLE_SAMPLES=true` (15 capabilities), all day-0 manifests.
+
+| Check | Result |
+|---|---|
+| Template | IMDSv1 calls return 401, IMDSv2 calls 200 on all three hosts; the staging bucket is readable, `s3 ls` of all buckets is denied; Squid blocks quay.io and registry.redhat.io, and port 3128 returns 403 for disallowed hosts; rules and Squid survive a reboot |
+| Mirror (bastion, m6i.2xlarge) | `fast-5.0` 4.22.18 -> 5.0.0, `graph: true`, cincinnati-operator, cert-manager, lightspeed-operator: 34 min. Cluster resources: IDMS (release and operator), ITMS, CatalogSource, ClusterCatalog, signature ConfigMap, UpdateService |
+| Installer extraction | `oc adm release extract --idms-file ... --command=openshift-install-fips` against the mirror took 55 s with quay.io blocked. The binary reports the mirror's release digest |
+| Install | 45m53s, no intervention. 5.0.0, **32/32** operators available (no `samples` operator), FIPS on all nodes |
+| OpenShift Update Service | Operator 5.0.3 from the mirrored CatalogSource; oc-mirror's UpdateService (graph image and releases from the mirror); ingress CA added to the cluster trust bundle; CVO `upstream` set to the local policy engine: `RetrievedUpdates=True`, channel `fast-5.0`, "No updates available" (5.0.0 is the newest release) |
+| OLM v1 | cert-manager-operator 1.20.1 installed through a ClusterExtension from the mirrored ClusterCatalog. The catalog takes about 10 min to unpack first; `spec.serviceAccount` is deprecated and ignored in 5.0 |
+| lightspeed-operator 2.0.0 installed (OLM v0), no OLSConfig | Console `LightspeedButton` stays **Disabled**; no Lightspeed console plugin is enabled (plugins: networking, monitoring). The operator adds the `olsconfigs.ols.openshift.io` and `agenticolsconfigs.agentic.openshift.io` CRDs and runs two controllers (`lightspeed-operator`, `lightspeed-agentic-operator`) |
+| Upgradeable | `False`: the `cloudcredential.openshift.io/upgradeable-to` annotation is missing, as expected for Manual (STS) credentials before an upgrade |
+
+**Egress audit (Squid) during the install, by cluster node.** All attempts were blocked:
+- no registry.redhat.io attempts: the samples probe is gone with `DISABLE_SAMPLES`
+- **quay.io: 88 attempts** from two control-plane nodes, 06:38-06:59 (66 from one node, about every 20 s, and a burst of 22 from another)
+- **api.openshift.com: 22**, from three nodes. Mostly CVO update checks before the CVO was pointed at the local update service
+- 70 TLS connections without SNI from two nodes
+
+CRI-O logged no quay.io image pulls (all node pulls went to the mirror), and the openshift-apiserver and
+controller-manager logs show none either. The quay.io callers are pods making their own TLS calls, and still
+need to be identified (conntrack or a packet capture on the node). Earlier audits looked only for
+registry.redhat.io, so installs 1-3 probably had the same traffic.
+
 ## Reproduce
 
 ```bash

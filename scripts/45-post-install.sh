@@ -131,31 +131,18 @@ do_operators() {
     cc="$(ocx "oc get clustercatalog -o name | grep -m1 redhat-operator-index | sed 's|.*/||'")"
     cs="$(ocx "oc get catalogsource -n openshift-marketplace -o name | grep -m1 redhat-operator-index | sed 's|.*/||'")"
     echo "==> cert-manager via OLM v1 (ClusterExtension from ClusterCatalog ${cc})"
+    # A freshly applied ClusterCatalog takes several minutes to unpack (~10 min for the
+    # filtered redhat-operator-index); a ClusterExtension created before that reports
+    # "cache for catalog ... not found" and only installs on a later retry.
+    ocx "for i in \$(seq 1 90); do
+             s=\$(oc get clustercatalog ${cc} -o jsonpath='{.status.conditions[?(@.type==\"Serving\")].status}');
+             [ \"\$s\" = True ] && { echo \"    ClusterCatalog ${cc} serving\"; break; }; sleep 10; done"
+    # OLM v1 in 5.0 ignores spec.serviceAccount (deprecated), so none is created.
     ocx "oc apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cert-manager-operator
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: cert-manager-installer
-  namespace: cert-manager-operator
----
-# Lab shortcut: OLM v1 installs with the permissions of this service account.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: cert-manager-installer-admin
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-- kind: ServiceAccount
-  name: cert-manager-installer
-  namespace: cert-manager-operator
 ---
 apiVersion: olm.operatorframework.io/v1
 kind: ClusterExtension
@@ -163,8 +150,6 @@ metadata:
   name: openshift-cert-manager-operator
 spec:
   namespace: cert-manager-operator
-  serviceAccount:
-    name: cert-manager-installer
   source:
     sourceType: Catalog
     catalog:
