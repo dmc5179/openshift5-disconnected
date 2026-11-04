@@ -435,6 +435,9 @@ Resources:
             Action:
             - ec2:ModifyInstanceAttribute
             Resource: '*'
+          - Effect: Allow
+            Action: cloudformation:SignalResource
+            Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
 
   NATInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -467,6 +470,13 @@ Resources:
 
   NATInstance:
     Type: AWS::EC2::Instance
+    # Not CREATE_COMPLETE until Squid runs and the interception rules are loaded: the
+    # registry node needs working egress for dnf. Without this a fast bastion let the
+    # registry start while this node was still in dnf update (2026-11-04).
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT45M
     Properties:
       LaunchTemplate:
         LaunchTemplateId: !Ref ImdsV2LaunchTemplate
@@ -637,6 +647,15 @@ Resources:
             restorecon /etc/sysconfig/iptables || true
             systemctl enable --now iptables
             iptables -t nat -S PREROUTING
+
+            # Tell CloudFormation whether egress filtering is up (see CreationPolicy).
+            if systemctl is-active --quiet squid && iptables -t nat -S PREROUTING | grep -q 'REDIRECT --to-ports 3130'; then
+              nat_status=SUCCESS
+            else
+              nat_status=FAILURE
+            fi
+            /usr/local/bin/aws cloudformation signal-resource --region ${AWS::Region} --stack-name ${AWS::StackName} \
+              --logical-resource-id NATInstance --unique-id "$instanceid" --status $nat_status
 
 
 # End Nat Instance
@@ -887,7 +906,7 @@ Resources:
 
   RegistryInstance:
     Type: AWS::EC2::Instance
-    DependsOn: HelperInstanceWaitCondition
+    DependsOn: [HelperInstanceWaitCondition, NATInstance]
     # The stack is not CREATE_COMPLETE until the user data below has installed mirror-registry, Quay
     # answers its health check and ec2-user is logged in (CF-14). Without this the stack completed
     # while the node was still in dnf update.
