@@ -107,6 +107,14 @@ Parameters:
       Red Hat RHEL 9 or RHEL 10 AMI for the region (BASTION_RHEL_VERSION). The bastion's RHEL major version
       is chosen at creation; it is not upgraded in place.
 
+  NodeAmiId:
+    Type: String
+    Default: ""
+    Description: >-
+      AMI for the Squid (NAT) and registry nodes. Blank = the RHEL 9 AMI in RHELMap (RHEL 9.5,
+      Dec 2024, four regions only). scripts/10-deploy-vpc.sh passes the newest Red Hat RHEL 9 AMI
+      for the region (CF-13).
+
   AllowedSshCidr:
     Type: String
     Default: 0.0.0.0/0
@@ -153,6 +161,7 @@ Mappings:
 
 Conditions:
   HasBastionAmi: !Not [!Equals ["", !Ref BastionAmiId]]
+  HasNodeAmi: !Not [!Equals ["", !Ref NodeAmiId]]
   DoAz3: !Equals [3, !Ref AvailabilityZoneCount]
   DoAz2: !Or [!Equals [2, !Ref AvailabilityZoneCount], Condition: DoAz3]
 
@@ -481,7 +490,7 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref ImdsV2LaunchTemplate
         Version: !GetAtt ImdsV2LaunchTemplate.LatestVersionNumber
-      ImageId: !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]
+      ImageId: !If [HasNodeAmi, !Ref NodeAmiId, !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]]
       InstanceType: !Ref NATInstanceType
       IamInstanceProfile: !Ref NATInstanceProfile
       KeyName: !Ref KeyName
@@ -918,7 +927,7 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref ImdsV2LaunchTemplate
         Version: !GetAtt ImdsV2LaunchTemplate.LatestVersionNumber
-      ImageId: !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]
+      ImageId: !If [HasNodeAmi, !Ref NodeAmiId, !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]]
       IamInstanceProfile: !Ref RegistryInstanceProfile
       InstanceType: !Ref RegistryInstanceType
       KeyName: !Ref KeyName
@@ -1176,6 +1185,10 @@ Outputs:
   ProxyPrivateIp:
     Description: Private IP of the Squid NAT / egress-filter instance.
     Value: !GetAtt NATInstance.PrivateIp
+
+  NodeImageId:
+    Description: AMI the Squid and registry nodes were launched from.
+    Value: !If [HasNodeAmi, !Ref NodeAmiId, !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]]
 
   BastionImageId:
     Description: AMI the bastion was launched from (records the RHEL major version chosen at creation).

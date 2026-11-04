@@ -108,6 +108,14 @@ if [ -z "${BASTION_AMI_ID:-}" ]; then
 fi
 BASTION_AMI_NAME="$(aws ec2 describe-images --image-ids "$BASTION_AMI_ID" --query 'Images[0].Name' --output text)"
 echo "==> Bastion AMI: ${BASTION_AMI_ID} (${BASTION_AMI_NAME})"
+# Squid and registry nodes: newest RHEL 9 AMI unless NODE_AMI_ID is set (CF-13). They stay on
+# RHEL 9: mirror-registry on RHEL 9 is the validated path.
+if [ -z "${NODE_AMI_ID:-}" ]; then
+    NODE_AMI_ID="$(latest_rhel_ami "${NODE_RHEL_VERSION:-9}")"
+    [ -n "$NODE_AMI_ID" ] && [ "$NODE_AMI_ID" != "None" ] \
+        || { echo "Error: no RHEL ${NODE_RHEL_VERSION:-9} AMI found in ${REGION}; set NODE_AMI_ID." >&2; exit 1; }
+fi
+echo "==> Squid/registry AMI: ${NODE_AMI_ID} ($(aws ec2 describe-images --image-ids "$NODE_AMI_ID" --query 'Images[0].Name' --output text))"
 
 # --- client tool builds for the bastion's RHEL version ---------------------------
 # oc/kubectl and ccoctl come per RHEL build (rhel8/rhel9 today), oc-mirror from
@@ -148,7 +156,7 @@ jq -n \
     --arg cidr "$VPC_CIDR" --arg azs "$VPC_AZ_COUNT" --arg bits "$VPC_SUBNET_BITS" \
     --arg key "$EC2_KEY_NAME" --arg ver "$OCP_VERSION" \
     --arg nat "$PROXY_INSTANCE_TYPE" --arg bas "$BASTION_INSTANCE_TYPE" --arg reg "$REGISTRY_INSTANCE_TYPE" \
-    --arg ami "$BASTION_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" \
+    --arg ami "$BASTION_AMI_ID" --arg nami "$NODE_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" \
     --arg cb "$CLIENT_BUILD" --arg ocm "$OC_MIRROR_URL" \
     --rawfile ps "$PULL_SECRET_FILE" '
     [ {ParameterKey:"VpcCidr",               ParameterValue:$cidr},
@@ -160,6 +168,7 @@ jq -n \
       {ParameterKey:"BastionInstanceType",   ParameterValue:$bas},
       {ParameterKey:"RegistryInstanceType",  ParameterValue:$reg},
       {ParameterKey:"BastionAmiId",          ParameterValue:$ami},
+      {ParameterKey:"NodeAmiId",             ParameterValue:$nami},
       {ParameterKey:"AllowedSshCidr",        ParameterValue:$ssh},
       {ParameterKey:"ClientRhelBuild",       ParameterValue:$cb},
       {ParameterKey:"OcMirrorUrl",           ParameterValue:$ocm},
