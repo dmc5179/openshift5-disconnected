@@ -242,12 +242,18 @@ yq -i '
 # ClusterVersion CRD rejects them on a Default (non-TechPreview) cluster. The
 # ClusterVersion object is then never created, the CVO waits forever, and the
 # install stalls at bootstrap with NotReady masters (observed 2026-11-03).
-if [ "$DISABLE_INSIGHTS" = "true" ]; then
-    yq -i '.capabilities = {"baselineCapabilitySet": "None", "additionalEnabledCapabilities": [
-        "baremetal", "Console", "marketplace", "Storage", "openshift-samples", "CSISnapshot",
-        "NodeTuning", "MachineAPI", "Build", "DeploymentConfig", "ImageRegistry",
-        "OperatorLifecycleManager", "OperatorLifecycleManagerV1", "CloudCredential",
-        "Ingress", "CloudControllerManager"]}' "$OUTPUT_FILE"
+# DISABLE_SAMPLES leaves out openshift-samples too: the samples operator is then
+# never deployed. Otherwise it probes registry.redhat.io every 20 s for about
+# 5 minutes on first start (disconnected detection) before setting itself
+# Removed (observed 2026-11-04). The ImageStreams in the openshift namespace
+# (cli, tools, must-gather, ...) come from the release payload, not from samples.
+# A capability left out can be enabled later, never disabled.
+if [ "$DISABLE_INSIGHTS" = "true" ] || [ "${DISABLE_SAMPLES:-false}" = "true" ]; then
+    caps="baremetal Console marketplace Storage openshift-samples CSISnapshot NodeTuning MachineAPI Build DeploymentConfig ImageRegistry OperatorLifecycleManager OperatorLifecycleManagerV1 CloudCredential Ingress CloudControllerManager"
+    [ "$DISABLE_INSIGHTS" = "true" ] || caps="$caps Insights"
+    [ "${DISABLE_SAMPLES:-false}" = "true" ] && caps="$(echo "$caps" | tr ' ' '\n' | grep -vx openshift-samples | tr '\n' ' ')"
+    V_CAPS="$(echo $caps | tr ' ' '\n' | jq -R . | jq -sc .)" \
+        yq -i '.capabilities = {"baselineCapabilitySet": "None", "additionalEnabledCapabilities": env(V_CAPS)}' "$OUTPUT_FILE"
 fi
 
 # ISO: the AWS API CA goes into the trust bundle too; a custom RHCOS AMI when given.
@@ -353,7 +359,7 @@ fi
 for f in "$D0"/*.yaml; do yq -e '.kind' "$f" >/dev/null || { echo "Error: invalid day-0 manifest ${f}" >&2; exit 1; }; done
 echo "    day-0 manifests: $(ls "$D0" | tr '\n' ' ')"
 
-echo "    baseDomain=${BASE_DOMAIN} cluster=${CLUSTER_NAME} target=${TARGET_ENV} publish=${PUBLISH} stream=${OS_IMAGE_STREAM} fips=${FIPS} insights-disabled=${DISABLE_INSIGHTS}"
+echo "    baseDomain=${BASE_DOMAIN} cluster=${CLUSTER_NAME} target=${TARGET_ENV} publish=${PUBLISH} stream=${OS_IMAGE_STREAM} fips=${FIPS} insights-disabled=${DISABLE_INSIGHTS} samples-disabled=${DISABLE_SAMPLES:-false}"
 echo "==> Wrote ${OUTPUT_FILE} (mode 600: contains the pull secret)"
 if [ "$CREDENTIALS_MODE" = "Manual" ]; then
     echo "    credentialsMode Manual (STS): next run scripts/20-prepare-sts.sh (ccoctl), then add its"

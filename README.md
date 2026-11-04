@@ -178,6 +178,7 @@ scripts/90-destroy-vpc.sh                  # empties the staging bucket, deletes
 | `FIPS` | `false` | `true` needs `openshift-install-fips` on a FIPS-mode RHEL host (step 6). Cannot be changed after install. |
 | `OS_IMAGE_STREAM` | `rhel-10` | RHCOS stream. `rhel-9` if you need runc or the RHEL 9 FIPS-validated modules. |
 | `DISABLE_INSIGHTS` | `true` | Leaves out the Insights capability at install. This cannot be undone later. |
+| `DISABLE_SAMPLES` | `true` | Leaves out the `openshift-samples` capability, so the samples operator never runs and never probes registry.redhat.io (it otherwise tries for about 5 minutes on first start, then turns itself off). Samples can be enabled later; a capability cannot be disabled after install. |
 | `DISABLE_LIGHTSPEED` | `true` | Day-0 manifest that sets the console `LightspeedButton` capability to `Disabled`. Also leave `lightspeed-operator` out of `MIRROR_OPERATORS`. |
 | `DISABLE_DEFAULT_CATALOGS` | `true` | Day-0 manifest that sets OperatorHub `disableAllDefaultSources`. Without it, the default catalogs sit in ImagePullBackOff. |
 | `INSTALL_HOST` | `registry` | Host that runs `openshift-install`: `registry` or `bastion`. |
