@@ -1,0 +1,9 @@
+apiVersion: agentic.openshift.io/v1alpha1
+kind: AgenticRun
+metadata:
+  name: test-run
+  namespace: default
+spec:
+  request: "Why is my pod crashing?"
+  analysis:
+    agent: default

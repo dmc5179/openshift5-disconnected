@@ -1,0 +1,17 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  name: cluster
+spec:
+  llm:
+    providers:
+    - name: local-vllm
+      type: rhoai_vllm
+      url: https://vllm.example.internal/v1
+      credentialsSecretRef:
+        name: llm-credentials
+      models:
+      - name: granite
+  ols:
+    defaultModel: granite
+    defaultProvider: local-vllm

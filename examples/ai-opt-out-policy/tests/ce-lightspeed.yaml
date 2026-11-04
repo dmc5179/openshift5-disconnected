@@ -1,0 +1,10 @@
+apiVersion: olm.operatorframework.io/v1
+kind: ClusterExtension
+metadata:
+  name: lightspeed-operator
+spec:
+  namespace: openshift-lightspeed
+  source:
+    sourceType: Catalog
+    catalog:
+      packageName: lightspeed-operator

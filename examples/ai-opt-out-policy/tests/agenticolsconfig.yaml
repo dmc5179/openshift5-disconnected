@@ -1,0 +1,6 @@
+apiVersion: agentic.openshift.io/v1alpha1
+kind: AgenticOLSConfig
+metadata:
+  name: cluster
+spec:
+  suspended: false

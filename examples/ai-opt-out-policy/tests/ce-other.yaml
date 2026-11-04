@@ -1,0 +1,10 @@
+apiVersion: olm.operatorframework.io/v1
+kind: ClusterExtension
+metadata:
+  name: aws-load-balancer-operator
+spec:
+  namespace: openshift-lightspeed
+  source:
+    sourceType: Catalog
+    catalog:
+      packageName: aws-load-balancer-operator

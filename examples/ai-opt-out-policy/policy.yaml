@@ -1,0 +1,273 @@
+# AI opt-out admission policy for OpenShift 5.0
+#
+# Keeps OpenShift Lightspeed and the agentic AI features (OLSv2 / AI Hub) from
+# being turned on, even when lightspeed-operator is already installed. It uses
+# the built-in Kubernetes ValidatingAdmissionPolicy API (no webhook, no extra
+# operator), so it works on a disconnected cluster.
+#
+# Tested on OpenShift 5.0.0 (Kubernetes 1.36.5) with lightspeed-operator 2.0.0
+# installed and no OLSConfig. See RESULTS.md for the test commands and output.
+#
+# What it denies (for everyone except the break-glass group below):
+#   1. ai-opt-out-ai-resources       CREATE of any ols.openshift.io or agentic.openshift.io
+#                                    object (OLSConfig, AgenticOLSConfig, AgenticRun,
+#                                    LLMProvider, Agent, ApprovalPolicy, ...) and any UPDATE
+#                                    that changes .spec of an existing one.
+#   2. ai-opt-out-olm-subscription   CREATE of an OLM v0 Subscription for package
+#                                    lightspeed-operator, or an UPDATE that changes its spec
+#                                    (channel, approval, startingCSV, ...).
+#      ai-opt-out-olm-clusterextension  The same for OLM v1 ClusterExtensions
+#                                    (spec.source.catalog.packageName).
+#   3. ai-opt-out-console-operator   A spec change to console.operator.openshift.io/cluster
+#                                    that leaves the LightspeedButton capability anything but
+#                                    Disabled (including removing it), or enables the
+#                                    Lightspeed console plugins in spec.plugins.
+#   4. ai-opt-out-console-plugins    CREATE / spec UPDATE of the ConsolePlugins
+#                                    lightspeed-console-plugin and
+#                                    lightspeed-agentic-console-plugin.
+#
+# Deliberately allowed, so controllers keep working:
+#   - status updates (status is a subresource; these policies match only the main resource),
+#   - metadata-only updates (labels, annotations, finalizers) and anything on an object
+#     that is being deleted, so existing objects can be cleaned up,
+#   - DELETE of everything (removing AI resources is always allowed).
+#
+# Break-glass: members of the group "ai-opt-out-break-glass" bypass all rules.
+# The group does not exist by default. To use it:
+#     oc adm groups new ai-opt-out-break-glass <user>
+# and remove the user again afterwards. Membership is visible in the audit log.
+#
+# Install:   oc apply -f policy.yaml
+# Remove:    oc delete -f policy.yaml
+#            (or: oc delete validatingadmissionpolicybinding,validatingadmissionpolicy -l ai-opt-out.example.com/policy=true)
+#
+# Caveat: a cluster-admin can delete these objects. Pair this with RBAC that keeps
+# validatingadmissionpolicies/bindings out of day-to-day admin roles, and with GitOps
+# (Argo CD self-heal) or an ACM policy that re-creates them. See RESULTS.md.
+---
+# Rule 1: OLSConfig, AgenticOLSConfig, AgenticRun and every other AI custom resource.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ai-opt-out-ai-resources
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["ols.openshift.io", "agentic.openshift.io"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["*"]          # main resources only; "*/status" is not matched
+      scope: "*"
+  matchConditions:
+  - name: not-break-glass
+    expression: "!('ai-opt-out-break-glass' in request.userInfo.groups)"
+  validations:
+  # CREATE is always denied. UPDATE is allowed only when the object is being
+  # deleted (finalizer removal) or when .spec is unchanged (metadata-only change).
+  - expression: >-
+      request.operation == 'UPDATE' && (
+        has(object.metadata.deletionTimestamp) ||
+        (has(object.spec) == has(oldObject.spec) &&
+         (!has(object.spec) || object.spec == oldObject.spec))
+      )
+    messageExpression: >-
+      'AI features are disabled on this cluster by policy ai-opt-out-ai-resources: ' +
+      request.operation + ' of ' + request.kind.kind + ' (' + request.kind.group +
+      ') is not allowed. Contact the platform team (break-glass group ai-opt-out-break-glass).'
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ai-opt-out-ai-resources
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  policyName: ai-opt-out-ai-resources
+  validationActions: [Deny]
+---
+# Rule 2a: OLM v0 Subscription for lightspeed-operator.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ai-opt-out-olm-subscription
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["operators.coreos.com"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["subscriptions"]
+  matchConditions:
+  - name: not-break-glass
+    expression: "!('ai-opt-out-break-glass' in request.userInfo.groups)"
+  - name: is-lightspeed
+    expression: "has(object.spec) && has(object.spec.name) && object.spec.name == 'lightspeed-operator'"
+  validations:
+  # An existing Subscription (installed before the policy) can still be reconciled
+  # by OLM and deleted, but not created, re-pointed or upgraded through its spec.
+  - expression: >-
+      request.operation == 'UPDATE' && (
+        has(object.metadata.deletionTimestamp) || object.spec == oldObject.spec
+      )
+    message: >-
+      AI features are disabled on this cluster by policy ai-opt-out-olm-subscription:
+      creating or changing a Subscription for lightspeed-operator is not allowed.
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ai-opt-out-olm-subscription
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  policyName: ai-opt-out-olm-subscription
+  validationActions: [Deny]
+---
+# Rule 2b: OLM v1 ClusterExtension for lightspeed-operator.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ai-opt-out-olm-clusterextension
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["olm.operatorframework.io"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["clusterextensions"]
+  matchConditions:
+  - name: not-break-glass
+    expression: "!('ai-opt-out-break-glass' in request.userInfo.groups)"
+  - name: is-lightspeed
+    expression: >-
+      has(object.spec) && has(object.spec.source) && has(object.spec.source.catalog) &&
+      has(object.spec.source.catalog.packageName) &&
+      object.spec.source.catalog.packageName == 'lightspeed-operator'
+  validations:
+  - expression: >-
+      request.operation == 'UPDATE' && (
+        has(object.metadata.deletionTimestamp) || object.spec == oldObject.spec
+      )
+    message: >-
+      AI features are disabled on this cluster by policy ai-opt-out-olm-clusterextension:
+      creating or changing a ClusterExtension for lightspeed-operator is not allowed.
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ai-opt-out-olm-clusterextension
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  policyName: ai-opt-out-olm-clusterextension
+  validationActions: [Deny]
+---
+# Rule 3: console operator config. Evaluated only when .spec changes, so the
+# console operator's own status and metadata writes are never blocked.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ai-opt-out-console-operator
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["operator.openshift.io"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["consoles"]
+  matchConditions:
+  - name: not-break-glass
+    expression: "!('ai-opt-out-break-glass' in request.userInfo.groups)"
+  - name: is-cluster
+    expression: "object.metadata.name == 'cluster'"
+  - name: spec-changed
+    expression: "request.operation == 'CREATE' || !has(oldObject.spec) || !has(object.spec) || object.spec != oldObject.spec"
+  validations:
+  # spec.customization.capabilities must contain LightspeedButton = Disabled, and no
+  # LightspeedButton entry with another state. Every level may be absent.
+  - expression: >-
+      has(object.spec) && has(object.spec.customization) &&
+      has(object.spec.customization.capabilities) &&
+      object.spec.customization.capabilities.exists(c,
+        c.name == 'LightspeedButton' && has(c.visibility) && c.visibility.state == 'Disabled') &&
+      !object.spec.customization.capabilities.exists(c,
+        c.name == 'LightspeedButton' && (!has(c.visibility) || c.visibility.state != 'Disabled'))
+    message: >-
+      AI features are disabled on this cluster by policy ai-opt-out-console-operator:
+      spec.customization.capabilities must keep LightspeedButton with visibility.state Disabled.
+    reason: Forbidden
+  # The Lightspeed console plugins must not be enabled.
+  - expression: >-
+      !has(object.spec) || !has(object.spec.plugins) ||
+      !object.spec.plugins.exists(p,
+        p == 'lightspeed-console-plugin' || p == 'lightspeed-agentic-console-plugin')
+    message: >-
+      AI features are disabled on this cluster by policy ai-opt-out-console-operator:
+      the Lightspeed console plugins may not be enabled in spec.plugins.
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ai-opt-out-console-operator
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  policyName: ai-opt-out-console-operator
+  validationActions: [Deny]
+---
+# Rule 4: the ConsolePlugin objects that lightspeed-operator 2.0.0 creates
+# (names taken from its CSV).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ai-opt-out-console-plugins
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: ["console.openshift.io"]
+      apiVersions: ["*"]
+      operations: ["CREATE", "UPDATE"]
+      resources: ["consoleplugins"]
+  matchConditions:
+  - name: not-break-glass
+    expression: "!('ai-opt-out-break-glass' in request.userInfo.groups)"
+  - name: is-lightspeed-plugin
+    expression: "object.metadata.name in ['lightspeed-console-plugin', 'lightspeed-agentic-console-plugin']"
+  validations:
+  - expression: >-
+      request.operation == 'UPDATE' && (
+        has(object.metadata.deletionTimestamp) || object.spec == oldObject.spec
+      )
+    message: >-
+      AI features are disabled on this cluster by policy ai-opt-out-console-plugins:
+      the Lightspeed ConsolePlugins may not be created or changed.
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ai-opt-out-console-plugins
+  labels:
+    ai-opt-out.example.com/policy: "true"
+spec:
+  policyName: ai-opt-out-console-plugins
+  validationActions: [Deny]
