@@ -1,0 +1,42 @@
+# Agent-based Installer, SNO, disconnected, FIPS - lab test for boot ISO creation offline (OCP 5.0.0).
+# REDACTED copy: pullSecret, sshKey and additionalTrustBundle are placeholders. Fake MAC/IPs.
+apiVersion: v1
+baseDomain: example.com
+metadata:
+  name: agent-sno
+compute:
+- name: worker
+  replicas: 0
+  architecture: amd64
+controlPlane:
+  name: master
+  replicas: 1
+  architecture: amd64
+networking:
+  clusterNetwork:
+  - cidr: 10.128.0.0/14
+    hostPrefix: 23
+  machineNetwork:
+  - cidr: 192.168.111.0/24
+  networkType: OVNKubernetes
+  serviceNetwork:
+  - 172.30.0.0/16
+platform:
+  none: {}
+fips: true
+# osImageStream: rhel-9     # default on 5.x is rhel-10
+pullSecret: '<mirror pull secret>'
+sshKey: '<ssh public key>'
+additionalTrustBundlePolicy: Always
+additionalTrustBundle: |
+  <mirror registry root CA PEM>
+imageDigestSources:
+- mirrors:
+  - ip-10-0-55-212.us-east-2.compute.internal:8443/ocp5/openshift/release-images
+  source: quay.io/openshift-release-dev/ocp-release
+- mirrors:
+  - ip-10-0-55-212.us-east-2.compute.internal:8443/ocp5/openshift/release
+  source: quay.io/openshift-release-dev/ocp-v4.0-art-dev
+- mirrors:
+  - ip-10-0-55-212.us-east-2.compute.internal:8443/ocp5/openshift/release
+  source: quay.io/openshift-release-dev/ocp-v5.0-art-dev
