@@ -276,23 +276,35 @@ fi
 # --- day-0 manifests --------------------------------------------------------------
 D0="${CLUSTER_DIR}/day0-manifests"
 rm -rf "$D0"; mkdir -p "$D0"
-if [ "${DISABLE_LIGHTSPEED:-false}" = "true" ]; then
-    cat > "${D0}/99-console-disable-lightspeed.yaml" <<'EOF'
-# Hide the OpenShift Lightspeed AI entry point in the web console from first boot.
-# Capability names per openshift/api operator/v1 types_console.go (5.0):
-# LightspeedButton, GettingStartedBanner, GuidedTour.
+# Console operator config (one Console object for both settings):
+#   DISABLE_LIGHTSPEED: hide the OpenShift Lightspeed AI entry point from first boot.
+#     Capability names per openshift/api operator/v1 types_console.go (5.0):
+#     LightspeedButton, GettingStartedBanner, GuidedTour.
+#   SILENCE_CONSOLE_TELEMETRY: the console-operator looks up the organization at
+#     api.openshift.com/api/accounts_mgmt/v1/subscriptions every 5 minutes, even with
+#     no telemetry and no cloud.openshift.com token. It skips the lookup when both
+#     telemetry.console.openshift.io/ORGANIZATION_ID and .../ACCOUNT_MAIL are set
+#     (console-operator release-5.0 GetOrganizationMeta; only presence is checked).
+#     Placeholder values reach the console front end as telemetry metadata, so do
+#     not use this on a connected cluster. Verified day 2 on 5.0.0 (2026-11-04).
+if [ "${DISABLE_LIGHTSPEED:-false}" = "true" ] || [ "${SILENCE_CONSOLE_TELEMETRY:-false}" = "true" ]; then
+    CF="${D0}/99-console-operator-config.yaml"
+    cat > "$CF" <<'EOF'
 apiVersion: operator.openshift.io/v1
 kind: Console
 metadata:
   name: cluster
 spec:
   managementState: Managed
-  customization:
-    capabilities:
-    - name: LightspeedButton
-      visibility:
-        state: Disabled
 EOF
+    if [ "${DISABLE_LIGHTSPEED:-false}" = "true" ]; then
+        yq -i '.spec.customization.capabilities = [{"name": "LightspeedButton", "visibility": {"state": "Disabled"}}]' "$CF"
+    fi
+    if [ "${SILENCE_CONSOLE_TELEMETRY:-false}" = "true" ]; then
+        V_ORG="${CONSOLE_TELEMETRY_ORG_ID:-0000000}" V_MAIL="${CONSOLE_TELEMETRY_ACCOUNT_MAIL:-disconnected@example.com}" \
+            yq -i '.metadata.annotations."telemetry.console.openshift.io/ORGANIZATION_ID" = strenv(V_ORG) |
+                   .metadata.annotations."telemetry.console.openshift.io/ACCOUNT_MAIL" = strenv(V_MAIL)' "$CF"
+    fi
 fi
 if [ "${DISABLE_DEFAULT_CATALOGS:-false}" = "true" ]; then
     cat > "${D0}/99-operatorhub-disable-default-sources.yaml" <<'EOF'

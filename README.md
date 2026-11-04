@@ -180,6 +180,7 @@ scripts/90-destroy-vpc.sh                  # empties the staging bucket, deletes
 | `DISABLE_INSIGHTS` | `true` | Leaves out the Insights capability at install. This cannot be undone later. |
 | `DISABLE_SAMPLES` | `true` | Leaves out the `openshift-samples` capability, so the samples operator never runs and never probes registry.redhat.io (it otherwise tries for about 5 minutes on first start, then turns itself off). Samples can be enabled later; a capability cannot be disabled after install. |
 | `DISABLE_LIGHTSPEED` | `true` | Day-0 manifest that sets the console `LightspeedButton` capability to `Disabled`. Also leave `lightspeed-operator` out of `MIRROR_OPERATORS`. |
+| `SILENCE_CONSOLE_TELEMETRY` | `true` | Day-0 annotations `telemetry.console.openshift.io/ORGANIZATION_ID` and `ACCOUNT_MAIL` (placeholders; override with `CONSOLE_TELEMETRY_ORG_ID` / `CONSOLE_TELEMETRY_ACCOUNT_MAIL`) on the Console operator config. They stop the console-operator from calling api.openshift.com every 5 minutes. Disconnected clusters only. |
 | `DISABLE_DEFAULT_CATALOGS` | `true` | Day-0 manifest that sets OperatorHub `disableAllDefaultSources`. Without it, the default catalogs sit in ImagePullBackOff. |
 | `INSTALL_HOST` | `registry` | Host that runs `openshift-install`: `registry` or `bastion`. |
 | `MIRROR_OPERATORS` | blank | Operators to mirror, as `package` or `package:channel`. |
