@@ -344,6 +344,10 @@ data:
   ${REGISTRY_HOST}..${MIRROR_REGISTRY_PORT}: |
 EOF
         sed 's/^/    /' "$MIRROR_CA_FILE"
+        # OpenShift Update Service reads the graph-data image's registry CA from this
+        # same ConfigMap, under the fixed key updateservice-registry.
+        echo "  updateservice-registry: |"
+        sed 's/^/    /' "$MIRROR_CA_FILE"
     } > "${D0}/99-configmap-mirror-registry-ca.yaml"
     cat > "${D0}/99-image-config-additional-trusted-ca.yaml" <<'EOF'
 # Trust the mirror registry for ImageStream imports and builds.
