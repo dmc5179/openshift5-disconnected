@@ -58,6 +58,13 @@ done
 [ "${s:-}" = "1" ] || { echo "Error: ${TARGET} did not come back in FIPS mode (fips_enabled=${s:-unreachable})." >&2; exit 1; }
 echo "==> ${TARGET} is in FIPS mode: $(run 'fips-mode-setup --check 2>&1 | tail -1'); policy $(run 'update-crypto-policies --show')"
 if [ "$TARGET" = "registry" ]; then
-    echo "==> Quay after reboot: $(run 'curl -s -o /dev/null -w %{http_code} https://$(hostname -f):8443/health/instance')"
+    # After a reboot quay-app starts before quay-pod exists, fails once and is restarted
+    # by systemd ~30 s later; Quay then needs about a minute (observed 3.5 min in total
+    # on a FIPS RHEL 9 node). Wait for the health check instead of reporting a failure.
+    echo "==> Waiting for Quay after the reboot (up to 10 min)"
+    q="$(run 'for i in $(seq 1 60); do c=$(curl -sk -o /dev/null -w %{http_code} https://$(hostname -f):8443/health/instance); [ "$c" = 200 ] && break; sleep 10; done; echo $c')"
+    [ "$q" = "200" ] || { echo "Error: Quay health is ${q} 10 min after the reboot." >&2; exit 1; }
+    echo "    Quay health 200; podman: $(run 'sudo podman ps --format "{{.Names}}" | tr "\n" " "')"
+else
+    run 'sudo podman run --rm registry.access.redhat.com/ubi9/ubi-minimal true >/dev/null 2>&1 && echo "    podman works after the reboot" || echo "    WARNING: podman fails after the reboot (CF-22?)"'
 fi
-run 'sudo podman run --rm registry.access.redhat.com/ubi9/ubi-minimal true >/dev/null 2>&1 && echo "    podman works after the reboot" || echo "    WARNING: podman fails after the reboot (CF-22?)"'
