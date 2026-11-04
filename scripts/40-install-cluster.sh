@@ -32,6 +32,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ACTION="${1:-start}"
 # shellcheck source=../cluster.env
 . "${ROOT}/cluster.env"
+INSTALLER_BIN="${INSTALLER_BIN:-openshift-install}"
 # shellcheck disable=SC1091
 . "${ROOT}/secrets/aws.env"
 . "${ROOT}/scripts/lib-stack.sh"
@@ -67,7 +68,11 @@ start)
             || { echo "Error: fips: true needs a FIPS-mode install host; run scripts/35-enable-fips-host.sh ${INSTALL_HOST:-registry}." >&2; exit 1; }
         echo "    install host is in FIPS mode; using openshift-install-fips"
     fi
-    install_ssh "openshift-install version | head -2 | sed 's/^/    /'"
+    # INSTALLER_BIN: path of the installer on the install host. Default: the
+    # openshift-install on its PATH. scripts/38-extract-installer.sh puts the
+    # openshift-install-fips extracted from the mirrored release payload at
+    # ~/bin-mirror/openshift-install-fips (no internet needed).
+    install_ssh "${INSTALLER_BIN} version | head -2 | sed 's/^/    /'"
 
     echo "==> Copying install-config, STS manifests and AWS credentials (mode 600)"
     install_ssh "umask 077; rm -rf ~/${RDIR} ~/${RDIR}-sts ~/${RDIR}-day0; mkdir -p ~/${RDIR} ~/${RDIR}-sts"
@@ -88,7 +93,7 @@ start)
 
     echo "==> openshift-install create manifests"
     install_ssh "set -e; set -a; . ~/ocp-install/aws.env; set +a; cd ~/${RDIR};
-                  openshift-install create manifests --dir . --log-level=${LOG_LEVEL} 2>&1 | tail -5
+                  ${INSTALLER_BIN} create manifests --dir . --log-level=${LOG_LEVEL} 2>&1 | tail -5
                   if [ -d ~/${RDIR}-sts/manifests ]; then
                       cp ~/${RDIR}-sts/manifests/* manifests/
                       cp -a ~/${RDIR}-sts/tls .
@@ -102,7 +107,7 @@ start)
     echo "==> Starting openshift-install create cluster (detached; 35-50 minutes)"
     install_ssh "cd ~/${RDIR}; rm -f install.exit;
                   setsid nohup bash -c 'set -a; . ~/ocp-install/aws.env; set +a;
-                      openshift-install create cluster --dir . --log-level=${LOG_LEVEL} > install.out 2>&1; echo \$? > install.exit' \
+                      ${INSTALLER_BIN} create cluster --dir . --log-level=${LOG_LEVEL} > install.out 2>&1; echo \$? > install.exit' \
                       >/dev/null 2>&1 < /dev/null &
                   sleep 5; pgrep -f '[o]penshift-install .*create cluster' >/dev/null && echo '    started'"
     echo "    Follow it with: $0 status   |   $0 wait"

@@ -13,6 +13,8 @@
 #   --namespace NS        destination namespace in Quay (default: ocp5)
 #   --workspace DIR       oc-mirror workspace (default: ~/oc-mirror/m2m)
 #   --cache-dir DIR       oc-mirror cache (default: oc-mirror's own, ~/.oc-mirror)
+#   --port PORT           port of oc-mirror's embedded cache registry (default: oc-mirror's
+#                         own, 55000). Use a different port for concurrent runs on one host.
 #   --ca-file PATH        registry root CA; default: fetch it over ssh from the
 #                         registry node (/opt/quay-root/quay-rootCA/rootCA.pem)
 #   --ssh-user USER       ssh user on the registry node (default: ec2-user)
@@ -33,7 +35,7 @@
 # Never list a 4.x and a 5.x platform channel in one imageset (OCPBUGS-136257);
 # the script refuses such a config.
 #
-# DRAFT - not yet run against a real bastion/registry pair.
+# Used for the 5.0 mirror-to-mirror runs in examples/oc-mirror-5.0-m2m/.
 
 set -euo pipefail
 
@@ -41,6 +43,7 @@ set -euo pipefail
 NAMESPACE="ocp5"
 WORKSPACE="${HOME}/oc-mirror/m2m"
 CACHE_DIR=""
+OCM_PORT=""
 CA_FILE=""
 SSH_USER="ec2-user"
 SSH_KEY=""
@@ -61,6 +64,7 @@ while [ $# -gt 0 ]; do
         --namespace)     need "$@"; NAMESPACE="$2"; shift 2 ;;
         --workspace)     need "$@"; WORKSPACE="$2"; shift 2 ;;
         --cache-dir)     need "$@"; CACHE_DIR="$2"; shift 2 ;;
+        --port)          need "$@"; OCM_PORT="$2"; shift 2 ;;
         --ca-file)       need "$@"; CA_FILE="$2"; shift 2 ;;
         --ssh-user)      need "$@"; SSH_USER="$2"; shift 2 ;;
         --ssh-key)       need "$@"; SSH_KEY="$2"; shift 2 ;;
@@ -177,6 +181,7 @@ echo "==> ${avail_gb} GB free under ${WORKSPACE}"
 ARGS=(--v2 -c "$ISC" --workspace "file://${WORKSPACE}" "docker://${REG}/${NAMESPACE}"
       --authfile "$MERGED" --log-level "$LOG_LEVEL")
 [ -n "$CACHE_DIR" ] && ARGS+=(--cache-dir "$CACHE_DIR")
+[ -n "$OCM_PORT" ] && ARGS+=(--port "$OCM_PORT")
 [ "$DRY_RUN" -eq 1 ] && ARGS+=(--dry-run)
 
 # Strip REGISTRY_* from oc-mirror's environment (see the header).

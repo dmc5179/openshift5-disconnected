@@ -26,7 +26,7 @@ stack_ready() {
     REGISTRY_HOST="$(stack_output RegistryPrivateDnsName)"
     REGISTRY_IP="$(stack_output RegistryPrivateIp)"
     [ -f "${SSH_PRIVATE_KEY:-}" ] || { echo "Error: SSH_PRIVATE_KEY not found: ${SSH_PRIVATE_KEY:-unset}" >&2; return 1; }
-    SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${HOME}/.ssh/known_hosts.${VPC_STACK_NAME}"
+    SSH_OPTS=(-o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=${HOME}/.ssh/known_hosts.${VPC_STACK_NAME}"
               -o ConnectTimeout=15 -o BatchMode=yes -o ServerAliveInterval=30 -i "$SSH_PRIVATE_KEY")
     # -J would not pass the options above to the jump connection; ProxyCommand does.
     PROXY_OPT=(-o "ProxyCommand=ssh ${SSH_OPTS[*]} -W %h:%p ec2-user@${BASTION_IP}")

@@ -46,6 +46,18 @@ if [ -n "$bucket" ] && [ "$bucket" != "None" ] && aws s3api head-bucket --bucket
 fi
 
 echo "==> Deleting stack ${VPC_STACK_NAME}"
+# Instances launched into the VPC outside the stack (scripts/16-rhel10-host.sh)
+# would block the VPC deletion.
+extra="$(aws ec2 describe-instances --filters "Name=tag:ocp5:stack,Values=${VPC_STACK_NAME}" \
+          "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+          --query 'Reservations[].Instances[].InstanceId' --output text)"
+if [ -n "$extra" ]; then
+    echo "==> Terminating non-stack instances in the VPC: ${extra}"
+    # shellcheck disable=SC2086
+    aws ec2 terminate-instances --instance-ids $extra >/dev/null
+    # shellcheck disable=SC2086
+    aws ec2 wait instance-terminated --instance-ids $extra
+fi
 aws cloudformation delete-stack --stack-name "$VPC_STACK_NAME"
 aws cloudformation wait stack-delete-complete --stack-name "$VPC_STACK_NAME"
 echo "==> Deleted"

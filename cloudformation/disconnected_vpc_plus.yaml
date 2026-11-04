@@ -393,6 +393,17 @@ Resources:
 # NAT Instance
 ########
 
+  # CF-16: require IMDSv2 (session tokens) on every instance; many GovCloud accounts
+  # enforce it. Hop limit 2 so containers on the hosts can still reach IMDS.
+  ImdsV2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpTokens: required
+          HttpEndpoint: enabled
+          HttpPutResponseHopLimit: 2
+
   NATInstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -406,9 +417,10 @@ Resources:
           Action:
           - sts:AssumeRole
       Path: /
+      # CF-11: AmazonEC2RoleforSSM is deprecated; partition-aware ARNs for GovCloud.
       ManagedPolicyArns:
-      - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM
-      - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      - !Sub "arn:${AWS::Partition}:iam::aws:policy/CloudWatchAgentServerPolicy"
       Policies:
       - PolicyName: root
         PolicyDocument:
@@ -456,6 +468,9 @@ Resources:
   NATInstance:
     Type: AWS::EC2::Instance
     Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ImdsV2LaunchTemplate
+        Version: !GetAtt ImdsV2LaunchTemplate.LatestVersionNumber
       ImageId: !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]
       InstanceType: !Ref NATInstanceType
       IamInstanceProfile: !Ref NATInstanceProfile
@@ -501,7 +516,8 @@ Resources:
 
             # Disable source / destination check. It cannot be disabled from the launch configuration
             region=${AWS::Region}
-            instanceid=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
+            imds_token=$(curl -s -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+            instanceid=$(curl -s -H "X-aws-ec2-metadata-token: $imds_token" http://169.254.169.254/latest/meta-data/instance-id)
             /usr/local/bin/aws ec2 modify-instance-attribute --no-source-dest-check --instance-id $instanceid --region $region
 
             # Install Squid, and iptables-nft + iptables-services so the interception rules can be
@@ -650,15 +666,13 @@ Resources:
           - Effect: "Allow"
             Action: "ec2:Describe*"
             Resource: "*"
+          # CF-11: only the staging bucket, only what the user data uses (aws s3 cp/rm).
           - Effect: "Allow"
-            Action: "ec2:AttachVolume"
-            Resource: "*"
+            Action: "s3:ListBucket"
+            Resource: !GetAtt S3Bucket.Arn
           - Effect: "Allow"
-            Action: "ec2:DetachVolume"
-            Resource: "*"
-          - Effect: "Allow"
-            Action: "s3:*"
-            Resource: "*"
+            Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+            Resource: !Sub "${S3Bucket.Arn}/*"
 
   HelperInstanceProfile:
     Type: "AWS::IAM::InstanceProfile"
@@ -694,6 +708,9 @@ Resources:
   HelperInstance:
     Type: AWS::EC2::Instance
     Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ImdsV2LaunchTemplate
+        Version: !GetAtt ImdsV2LaunchTemplate.LatestVersionNumber
       ImageId: !If [HasBastionAmi, !Ref BastionAmiId, !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]]
       IamInstanceProfile: !Ref HelperInstanceProfile
       InstanceType: !Ref BastionInstanceType
@@ -830,15 +847,13 @@ Resources:
           - Effect: "Allow"
             Action: "ec2:Describe*"
             Resource: "*"
+          # CF-11: only the staging bucket, only what the user data uses (aws s3 cp/rm).
           - Effect: "Allow"
-            Action: "ec2:AttachVolume"
-            Resource: "*"
+            Action: "s3:ListBucket"
+            Resource: !GetAtt S3Bucket.Arn
           - Effect: "Allow"
-            Action: "ec2:DetachVolume"
-            Resource: "*"
-          - Effect: "Allow"
-            Action: "s3:*"
-            Resource: "*"
+            Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+            Resource: !Sub "${S3Bucket.Arn}/*"
           # Lets the registry's user data report success or failure to the CreationPolicy on
           # RegistryInstance (CF-14). Limited to this stack.
           - Effect: "Allow"
@@ -881,6 +896,9 @@ Resources:
         Count: 1
         Timeout: PT60M
     Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ImdsV2LaunchTemplate
+        Version: !GetAtt ImdsV2LaunchTemplate.LatestVersionNumber
       ImageId: !FindInMap [RHELMap, !Ref "AWS::Region", HVM64]
       IamInstanceProfile: !Ref RegistryInstanceProfile
       InstanceType: !Ref RegistryInstanceType
