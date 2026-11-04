@@ -62,13 +62,44 @@ Side effects of FIPS on the bastion: sshd stops offering its ED25519 host key an
 reports a changed host key once (expected); podman keeps working after the reboot once the SELinux policy
 matches the installed systemd (see the template's full `dnf update`).
 
+## Install 3: FIPS default + day-0 catalog and CA fixes, on the rebuilt hardened stack
+
+47m56s, no manual intervention (2026-11-04 00:37Z). The stack was rebuilt from the hardened template
+first (registry readiness signal, Squid ACLs and SNI logging, persistent iptables), and the bastion was
+put in FIPS mode before mirroring.
+
+| Check | Result |
+|---|---|
+| Cluster | 5.0.0 Available; 33/33 operators Available, none Progressing or Degraded; 0 image pull failures |
+| FIPS | All 5 nodes RHCOS 10.2.20261027-0 with `fips_enabled=1`, crypto policy `FIPS`, `fips=1` on the kernel command line |
+| OpenShift Lightspeed | `LightspeedButton` Disabled; 0 Lightspeed/OLSConfig/AgenticRun CRDs; 0 lightspeed packagemanifests |
+| Insights | Capability absent (no `insights` cluster operator) |
+| OLM v0 default catalogs | `disableAllDefaultSources: true`; no CatalogSources |
+| **OLM v1 default ClusterCatalogs** (day-0 manifests, `availabilityMode: Unavailable`) | All three stay `Unavailable`, `Serving=False`, 47 min after install; the cluster-olm-operator did not reconcile them back. catalogd logged no registry.redhat.io access. |
+| **ImageStream imports** (day-0 `image.config` `additionalTrustedCA` with the mirror CA) | `openshift` namespace: 10 ImageStreams, every tag imported, 0 import failures; references resolve to `ocp-v5.0-art-dev` digests served by the mirror |
+
+**Egress audit (Squid, whole install).** The only attempts to a Red Hat registry were 17 CONNECTs to
+registry.redhat.io from one control-plane node, every 20 s from 00:20:31 to 00:25:31, all blocked. The
+source is the **cluster-samples-operator**: on first start it probes registry.redhat.io ("test tls connection
+to registry.redhat.io experienced SSL handshake error EOF"), then decides it is disconnected and sets itself
+to `Removed`. To avoid even this probe, leave `openshift-samples` out of the enabled capabilities.
+
+```bash
+# Day-0 manifests used (scripts/generate-install-config.sh, from cluster.env flags)
+99-console-disable-lightspeed.yaml                          # DISABLE_LIGHTSPEED
+99-operatorhub-disable-default-sources.yaml                 # DISABLE_DEFAULT_CATALOGS
+99-olmv1-clustercatalog-openshift-{redhat,certified,community}-operators-unavailable.yaml
+99-configmap-mirror-registry-ca.yaml                        # TRUST_MIRROR_FOR_IMAGESTREAMS
+99-image-config-additional-trusted-ca.yaml
+```
+
 ## Reproduce
 
 ```bash
 scripts/10-deploy-vpc.sh
 # on the bastion: generate-imageset-config.sh output -> bastion-mirror-to-mirror.sh
 scripts/30-fetch-mirror-credentials.sh
-scripts/generate-install-config.sh --fips on      # day-0 manifests from cluster.env flags
+scripts/generate-install-config.sh               # FIPS on by default; day-0 manifests from cluster.env flags
 scripts/20-prepare-sts.sh
 scripts/35-enable-fips-host.sh bastion
 INSTALL_HOST=bastion scripts/40-install-cluster.sh start
