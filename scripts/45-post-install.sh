@@ -46,9 +46,36 @@ do_resources() {
     bastion_ssh "tar -C ~/${MIRROR_WORKSPACE}/working-dir/cluster-resources -czf - ." | install_ssh "tar -C ~/${CR} -xzf -"
     install_ssh "ls ~/${CR} | sed 's/^/    /'"
     echo "==> Applying IDMS/ITMS, catalogs and signature ConfigMaps (UpdateService comes later)"
+    local before
+    before="$(ocx "oc get mcp worker master -o jsonpath='{.items[*].spec.configuration.name}'")"
     ocx "cd ~/${CR}; for f in \$(ls | grep -vE '^updateService'); do
              case \"\$f\" in *.yaml|*.yml|*.json) oc apply -f \"\$f\" | sed 's/^/    /' ;; esac
          done"
+    wait_mcp_rollout "$before"
+}
+
+# wait_mcp_rollout <pool target configs before a change>
+# New IDMS/ITMS reach the nodes' registries.conf through a MachineConfig rollout
+# (no reboot). Until every node has it, pulls of newly mirrored images go to the
+# source registry (blocked when disconnected) and back off: on 2026-11-05 an OLM
+# bundle-unpack pod pulled registry.redhat.io 1 minute after the operator IDMS was
+# applied. So wait for the pools before installing anything from the mirror.
+wait_mcp_rollout() {
+    local before="$1" now=""
+    echo "==> Waiting for the MachineConfigPools to roll out the new mirror configuration"
+    for _ in $(seq 1 24); do      # up to 2 min for a new rendered config to be targeted
+        now="$(ocx "oc get mcp worker master -o jsonpath='{.items[*].spec.configuration.name}'")"
+        [ "$now" != "$before" ] && break
+        sleep 5
+    done
+    if [ "$now" = "$before" ]; then
+        echo "    no new rendered config (nothing to roll out)"
+        return 0
+    fi
+    ocx "for i in \$(seq 1 90); do
+             u=\$(oc get mcp worker master -o jsonpath='{range .items[*]}{.status.conditions[?(@.type==\"Updated\")].status}{\" \"}{end}');
+             case \"\$u\" in *False*|*Unknown*|'') sleep 10 ;; *) echo '    pools updated:' \$(oc get mcp worker master --no-headers | awk '{print \$1\"=\"\$3}'); exit 0 ;; esac
+         done; echo '    WARNING: MachineConfigPools still updating after 15 min'; oc get mcp"
 }
 
 do_cleanup() {
