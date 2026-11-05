@@ -1,0 +1,42 @@
+# TEMPLATE - NOT APPLIED. Sigstore (cosign) signature verification for images that
+# YOU sign and push to your disconnected mirror registry.
+#
+# Before use:
+#   1. Replace every <MIRROR_HOST> / <ORG> placeholder with your registry and path.
+#   2. Replace keyData with: base64 -w0 cosign.pub   (the PEM public key of your cosign key pair)
+#   3. Sign each image by digest, under the SAME name that pods will pull, for example:
+#        cosign sign --key cosign.key <MIRROR_HOST>:8443/<ORG>/myapp@sha256:...
+#      cosign stores the signature in the same repository as the tag sha256-<digest>.sig.
+#   4. Test on a non-production cluster first. Scoped images WITHOUT a valid signature
+#      will fail to pull (SignatureValidationFailed). Images outside the scopes are not affected.
+#
+# Applying a ClusterImagePolicy makes the Machine Config Operator update
+# /etc/containers/policy.json and /etc/containers/registries.d/ on every node.
+# Validated with: oc apply --dry-run=server -f clusterimagepolicy-mirror-template.yaml (OCP 5.0.0)
+---
+apiVersion: config.openshift.io/v1
+kind: ClusterImagePolicy
+metadata:
+  name: mirror-own-images
+spec:
+  # A scope is a registry host, host/namespace, or host/namespace/repo
+  # (wildcards are allowed only as the leftmost DNS label, e.g. *.example.com).
+  # Scope by the name used in the pod spec. Do NOT reuse the Red Hat scopes
+  # quay.io/openshift-release-dev/* (owned by the default "openshift" policy).
+  scopes:
+  - <MIRROR_HOST>:8443/<ORG>
+  policy:
+    rootOfTrust:
+      policyType: PublicKey
+      publicKey:
+        # Placeholder, base64 of a PEM block that says REPLACE-WITH-YOUR-COSIGN-PUBLIC-KEY.
+        keyData: LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KUkVQTEFDRS1XSVRILVlPVVItQ09TSUdOLVBVQkxJQy1LRVkKLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tCg==
+    signedIdentity:
+      # The signature's docker-reference must match the pulled repository
+      # (by digest), or the exact tag. Use RemapIdentity instead when images were
+      # signed under another name (for example a build registry) and then mirrored:
+      #   matchPolicy: RemapIdentity
+      #   remapIdentity:
+      #     prefix: <MIRROR_HOST>:8443/<ORG>
+      #     signedPrefix: build-registry.example.com/<ORG>
+      matchPolicy: MatchRepoDigestOrExact
