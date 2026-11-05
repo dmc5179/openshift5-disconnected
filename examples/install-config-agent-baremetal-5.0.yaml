@@ -30,7 +30,7 @@ networking:
   - cidr: 10.128.0.0/14
     hostPrefix: 23
   machineNetwork:
-  - cidr: 192.168.0.0/16
+  - cidr: 10.10.10.0/24   # NOTE(ours): must contain the agent-config rendezvousIP (10.10.10.14); the docs sample used 192.168.0.0/16
   networkType: OVNKubernetes
   serviceNetwork:
   - 172.30.0.0/16
@@ -45,7 +45,10 @@ fips: false
 # The Insights Operator is the optional `Insights` capability (5.0 docs modules/insights-operator.adoc:
 # "optional cluster capability that can be disabled by cluster administrators during installation").
 # Pattern from OCP 4.22 docs (Installation overview > cluster capabilities): baselineCapabilitySet + explicit list.
-# List = 5.0 vCurrent MINUS Insights (exact names from installer release-5.0 openshift/api types_cluster_version.go).
+# List = the capabilities a Default (non-Tech-Preview) 5.0.0 cluster accepts, MINUS Insights.
+# Do NOT add CompatibilityRequirements or ClusterAPI: they are in the installer's vCurrent set and pass
+# install-config validation, but the ClusterVersion API rejects them on a Default cluster and bootstrap
+# stalls (lab 2026-11-03, OCPBUGS-136614).
 # Installer validation (pkg/types/validation/installconfig.go): Ingress always required; platform baremetal requires `baremetal` when baselineCapabilitySet is None.
 # A capability cannot be disabled after install - decide now. Re-enable later with:
 #   oc patch clusterversion version --type merge -p '{"spec":{"capabilities":{"additionalEnabledCapabilities":[...,"Insights"]}}}'
@@ -68,24 +71,22 @@ capabilities:
   - CloudCredential
   - Ingress
   - CloudControllerManager
-  - CompatibilityRequirements
-  - ClusterAPI
   # - Insights      # <- intentionally omitted: disables the Insights Operator ("Red Hat Lightspeed" health reporting)
 # Telemetry is separate from the Insights capability. To opt out of Telemetry/remote health at install, remove the
 # "cloud.openshift.com" entry from pullSecret before installing (KB 5530441; 5.0 docs insights-operator-new-pull-secret-disabled.adoc).
 # In a disconnected install the pull secret normally only contains the mirror registry, so this is usually already true.
 pullSecret: '{"auths": ...}'
-sshKey: 'ssh-ed25519 AAAA...'
+sshKey: 'ssh-ed25519 AAAA...'   # with fips: true use an RSA or ECDSA key (ed25519 is rejected in FIPS mode)
 # ---- restricted network block, verbatim from [B] (non-IBM Z variant) ----
 additionalTrustBundle: |
   -----BEGIN CERTIFICATE-----
   ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
   -----END CERTIFICATE-----
-imageContentSources:
+imageDigestSources:
 - mirrors:
   - <local_registry>/<local_repository_name>/release
   source: quay.io/openshift-release-dev/ocp-release
 - mirrors:
   - <local_registry>/<local_repository_name>/release
   source: quay.io/openshift-release-dev/ocp-v5.0-art-dev
-# NOTE(ours): imageContentSources is deprecated in favor of imageDigestSources (same shape). The safest rule is [C]: paste ALL entries from idms-oc-mirror.yaml.
+# NOTE(ours): changed from the docs' deprecated imageContentSources to imageDigestSources (same shape). The safest rule is [C]: paste ALL entries from idms-oc-mirror.yaml.

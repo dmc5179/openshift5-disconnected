@@ -1,0 +1,2 @@
+level=info msg=ipFamily is not specified in install-config; defaulting to "IPv4"
+level=error msg=failed to fetch Master Machines: failed to load asset "Install Config": failed to create install config: unable to load edge subnets: error retrieving Edge Subnets: failed to create EC2 client: EOF: error retrieving Edge Subnets: failed to create EC2 client: EOF

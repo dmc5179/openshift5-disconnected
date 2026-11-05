@@ -29,7 +29,10 @@ compute:
 # The Insights Operator is the optional `Insights` capability (5.0 docs modules/insights-operator.adoc:
 # "optional cluster capability that can be disabled by cluster administrators during installation").
 # Pattern from OCP 4.22 docs (Installation overview > cluster capabilities): baselineCapabilitySet + explicit list.
-# List = 5.0 vCurrent MINUS Insights (exact names from installer release-5.0 openshift/api types_cluster_version.go).
+# List = the capabilities a Default (non-Tech-Preview) 5.0.0 cluster accepts, MINUS Insights.
+# Do NOT add CompatibilityRequirements or ClusterAPI: they are in the installer's vCurrent set and pass
+# install-config validation, but the ClusterVersion API rejects them on a Default cluster and bootstrap
+# stalls (lab 2026-11-03, OCPBUGS-136614).
 # Installer validation (pkg/types/validation/installconfig.go): Ingress always required; on AWS CloudCredential and CloudControllerManager must stay enabled.
 # A capability cannot be disabled after install - decide now. Re-enable later with:
 #   oc patch clusterversion version --type merge -p '{"spec":{"capabilities":{"additionalEnabledCapabilities":[...,"Insights"]}}}'
@@ -52,8 +55,6 @@ capabilities:
   - CloudCredential
   - Ingress
   - CloudControllerManager
-  - CompatibilityRequirements
-  - ClusterAPI
   # - Insights      # <- intentionally omitted: disables the Insights Operator ("Red Hat Lightspeed" health reporting)
 # Telemetry is separate from the Insights capability. To opt out of Telemetry/remote health at install, remove the
 # "cloud.openshift.com" entry from pullSecret before installing (KB 5530441; 5.0 docs insights-operator-new-pull-secret-disabled.adoc).

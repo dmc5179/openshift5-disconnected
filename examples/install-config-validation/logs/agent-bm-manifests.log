@@ -1,0 +1,6 @@
+level=warning msg=imageContentSources is deprecated, please use ImageDigestSources
+level=info msg=Consuming Install Config from target directory
+level=warning msg=Making control-plane schedulable by setting MastersSchedulable to true for Scheduler cluster settings
+level=info msg=Successfully populated MCS CA cert information: root-ca 2036-11-02T03:22:23Z 2026-11-05T03:22:23Z
+level=info msg=Successfully populated MCS TLS cert information: root-ca 2036-11-02T03:22:23Z 2026-11-05T03:22:23Z
+level=info msg=Manifests created in: agent-bm-manifests, agent-bm-manifests/manifests and agent-bm-manifests/openshift

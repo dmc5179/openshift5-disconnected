@@ -1,0 +1,4 @@
+level=info msg=ipFamily is not specified in install-config; defaulting to "IPv4"
+level=warning msg=Mirror registry "ip-10-0-55-212.us-east-2.compute.internal:8443" is not found in pullSecret
+level=error msg=failed to fetch Master Machines: failed to load asset "Install Config": failed to create install config: invalid "install-config.yaml" file: fips: Forbidden: target cluster is in FIPS mode, use the FIPS-capable installer binary for RHEL 9 on a host with FIPS enabled.
+level=error msg=To obtain a suitable binary, download the openshift-install-rhel9 archive from the client mirror, or extract the openshift-install-fips command from the release payload.

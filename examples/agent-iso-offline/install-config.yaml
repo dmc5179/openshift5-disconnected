@@ -26,7 +26,7 @@ platform:
 fips: true
 # osImageStream: rhel-9     # default on 5.x is rhel-10
 pullSecret: '<mirror pull secret>'
-sshKey: '<ssh public key>'
+sshKey: '<ssh public key>'   # RSA or ECDSA: with fips: true the installer rejects ssh-ed25519
 additionalTrustBundlePolicy: Always
 additionalTrustBundle: |
   <mirror registry root CA PEM>

@@ -1,0 +1,7 @@
+level=warning msg=Unable to validate the release image architecture, skipping validation
+level=info msg=Configuration has 1 master replicas, 0 arbiter replicas, and 0 worker replicas
+level=warning msg=hosts[0].interfaces[0].name: interface name "enp0s4" not found in networkConfig interfaces [bond0.300 bond0]; connectivity may fail if interface names do not match at boot time
+level=warning msg=hosts[0].interfaces[1].name: interface name "enp0s5" not found in networkConfig interfaces [bond0.300 bond0]; connectivity may fail if interface names do not match at boot time
+level=info msg=Consuming Agent Config from target directory
+level=info msg=Consuming Install Config from target directory
+level=info msg=Cluster-Manifests created in: agent-bm-v2/cluster-manifests and agent-bm-v2/mirror

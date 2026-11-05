@@ -1,0 +1,2 @@
+FROM registry.fedoraproject.org/fedora:44
+RUN dnf -y -q install nmstate && dnf clean all

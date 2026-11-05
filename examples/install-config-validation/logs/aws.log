@@ -1,0 +1,2 @@
+level=info msg=ipFamily is not specified in install-config; defaulting to "IPv4"
+level=error msg=failed to fetch Master Machines: failed to load asset "Install Config": failed to create install config: [controlPlane.platform.aws: Internal error: failed to create EC2 client: EOF, compute[0].platform.aws: Internal error: failed to create EC2 client: EOF]
