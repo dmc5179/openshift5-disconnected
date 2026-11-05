@@ -139,6 +139,21 @@ export INSTALL_HOST=bastion         # or set it in cluster.env
 On RHEL 9, this runs `fips-mode-setup --enable` and reboots. RHEL 10 has no `fips-mode-setup`: the
 host must be installed in FIPS mode, so the script refuses.
 
+Alternative: a RHEL 10 FIPS image-mode host in the private subnet, FIPS from installation
+(`RHEL10_FIPS_AMI_ID`). It has no internet and no dnf repositories, so `prep` copies the bastion's
+`oc`/`kubectl` to it, adds the mirror CA to its system trust, and checks FIPS, the mirror and that
+quay.io is blocked:
+
+```bash
+scripts/16-rhel10-host.sh --private create     # PrivateSubnetId, RegistryInstanceSG, no public IP, IMDSv2, 300 GB
+scripts/16-rhel10-host.sh --private prep
+export INSTALL_HOST=rhel10                     # cloud-user, SSH through the bastion
+scripts/38-extract-installer.sh                # openshift-install-fips from the mirror
+INSTALLER_BIN='~/bin-mirror/openshift-install-fips' scripts/40-install-cluster.sh start
+```
+
+`scripts/90-destroy-vpc.sh` terminates it with the stack (tag `ocp5:stack`).
+
 ### 7. Install the cluster
 
 ```bash
@@ -182,8 +197,10 @@ scripts/90-destroy-vpc.sh                  # empties the staging bucket, deletes
 | `DISABLE_LIGHTSPEED` | `true` | Day-0 manifest that sets the console `LightspeedButton` capability to `Disabled`. Also leave `lightspeed-operator` out of `MIRROR_OPERATORS`. |
 | `SILENCE_CONSOLE_TELEMETRY` | `true` | Day-0 annotations `telemetry.console.openshift.io/ORGANIZATION_ID` and `ACCOUNT_MAIL` (placeholders; override with `CONSOLE_TELEMETRY_ORG_ID` / `CONSOLE_TELEMETRY_ACCOUNT_MAIL`) on the Console operator config. They stop the console-operator from calling api.openshift.com every 5 minutes. Disconnected clusters only. |
 | `DISABLE_DEFAULT_CATALOGS` | `true` | Day-0 manifest that sets OperatorHub `disableAllDefaultSources`. Without it, the default catalogs sit in ImagePullBackOff. |
-| `INSTALL_HOST` | `registry` | Host that runs `openshift-install`: `registry` or `bastion`. |
+| `INSTALL_HOST` | `registry` | Host that runs `openshift-install`: `registry`, `bastion`, or `rhel10` (the private RHEL 10 FIPS host from `scripts/16-rhel10-host.sh --private create`, user `cloud-user`). |
+| `RHEL10_HOST_SUBNET` | `public` | Placement for `scripts/16-rhel10-host.sh` when no `--private`/`--public` flag is given. `private` is the install host for `INSTALL_HOST=rhel10`. |
 | `MIRROR_OPERATORS` | blank | Operators to mirror, as `package` or `package:channel`. |
+| `MIRROR_KUBEVIRT` | `true` | Adds `kubeVirtContainer: true` to the ImageSetConfiguration (RHCOS KubeVirt boot image for hosted control planes on OpenShift Virtualization). oc-mirror 5.0 picks up only the RHCOS 9 image (N-11). |
 
 ## Known issues
 

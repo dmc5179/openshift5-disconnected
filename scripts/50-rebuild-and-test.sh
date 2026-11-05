@@ -3,48 +3,81 @@
 # 50-rebuild-and-test.sh - tear down and rebuild the whole environment, then run
 #                          the end-to-end disconnected test sequence unattended.
 #
-# Usage: scripts/50-rebuild-and-test.sh [--from PHASE] [--only PHASE] [--yes]
+# Usage: scripts/50-rebuild-and-test.sh [--from PHASE] [--only PHASE] [--yes] [--strict-egress]
 #
 # Phases (in order):
 #   teardown     destroy the cluster (from the host that installed it), delete the
-#                ccoctl STS resources, delete the stack (and non-stack instances)
+#                ccoctl STS resources, delete the stack (and non-stack instances,
+#                including the RHEL 10 hosts of scripts/16-rhel10-host.sh)
 #   deploy       scripts/10-deploy-vpc.sh
 #   validate     template checks: IMDSv2 enforced on every host, scoped S3 access,
 #                Squid allowlist and SNI log, iptables + squid survive a reboot
+#   rhel10host   TEST_INSTALL_HOST=rhel10 only (otherwise skipped): launch the RHEL
+#                10 FIPS image-mode install host in the PRIVATE subnet and prep it
+#                (scripts/16-rhel10-host.sh --private create + prep)
 #   mirror       bastion mirror-to-mirror: OCP_CHANNEL with the upgrade path from
-#                MIRROR_UPGRADE_FROM, graph data, MIRROR_TEST_OPERATORS
+#                MIRROR_UPGRADE_FROM, graph data, MIRROR_TEST_OPERATORS, and the
+#                KubeVirt boot image when MIRROR_KUBEVIRT=true (reports which of the
+#                RHCOS 9 / RHCOS 10 KubeVirt digests were copied, N-11)
 #   creds        scripts/30-fetch-mirror-credentials.sh (CA + mirror pull secret)
-#   fipshost     put the install host (TEST_INSTALL_HOST) into FIPS mode
+#   fipshost     put the install host (TEST_INSTALL_HOST) into FIPS mode; for
+#                rhel10 only verify fips_enabled=1 (FIPS from installation)
 #   sts          scripts/20-prepare-sts.sh
 #   config       scripts/generate-install-config.sh (FIPS, DISABLE_SAMPLES, day 0)
 #   extract      scripts/38-extract-installer.sh: openshift-install-fips from the mirror
 #   install      install with the extracted installer, wait for completion
-#   post         scripts/45-post-install.sh all
-#   audit        Squid egress summary for the run
+#   post         scripts/45-post-install.sh resources, cleanup, osus (then records
+#                the time the CVO points at the local OSUS), operators, status
+#   audit        Squid egress for the run, classified by source (cluster nodes,
+#                install host, registry node, other) and destination, ending with
+#                EGRESS VERDICT: PASS (only known exceptions) or FAIL (unexpected: ...)
 #
-# Every phase logs to logs/50-<phase>-<time>.log. Stops at the first failure;
-# rerun with --from <phase> after fixing it.
+# Environment:
+#   TEST_INSTALL_HOST      registry (default) | bastion | rhel10 - the host that
+#                          extracts the installer and runs install and post
+#   MIRROR_UPGRADE_FROM    4.22.z start of the mirrored upgrade path (default 4.22.18)
+#   MIRROR_TEST_OPERATORS  operators to mirror (default: OSUS, cert-manager, lightspeed)
+#   MIRROR_KUBEVIRT        cluster.env (default true): kubeVirtContainer in the ISC
+#   EGRESS_CVO_CUTOFF      epoch seconds; api.openshift.com from the cluster before it
+#                          counts as install-time CVO. Default: logs/.50-osus-done,
+#                          written by the post phase; without it, all of it counts
+#   --strict-egress        make the audit phase fail when the verdict is FAIL
+#
+# Every phase logs to logs/50-<phase>-<time>.log; the egress verdict also goes to
+# logs/50-egress-verdict-<time>.txt. Stops at the first failure; rerun with
+# --from <phase> after fixing it.
+#
+# Tonight's run (RHEL 10 FIPS install host in the private subnet):
+#   TEST_INSTALL_HOST=rhel10 scripts/50-rebuild-and-test.sh --yes
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PHASES=(teardown deploy validate mirror creds fipshost sts config extract install post audit)
-FROM="${PHASES[0]}"; ONLY=""; YES=0
+PHASES=(teardown deploy validate rhel10host mirror creds fipshost sts config extract install post audit)
+FROM="${PHASES[0]}"; ONLY=""; YES=0; STRICT_EGRESS=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --from) FROM="$2"; shift 2 ;;
         --only) ONLY="$2"; shift 2 ;;
         --yes)  YES=1; shift ;;
-        *) sed -n '2,27p' "${BASH_SOURCE[0]}"; exit 2 ;;
+        --strict-egress) STRICT_EGRESS=1; shift ;;
+        *) sed -n '2,50p' "${BASH_SOURCE[0]}"; exit 2 ;;
     esac
 done
 
 export TEST_INSTALL_HOST="${TEST_INSTALL_HOST:-registry}"
+case "$TEST_INSTALL_HOST" in registry|bastion|rhel10) ;; *) echo "TEST_INSTALL_HOST must be registry, bastion or rhel10." >&2; exit 2 ;; esac
+for p in "$FROM" ${ONLY:+"$ONLY"}; do
+    [[ " ${PHASES[*]} " == *" $p "* ]] || { echo "Unknown phase '$p' (phases: ${PHASES[*]})." >&2; exit 2; }
+done
 export MIRROR_UPGRADE_FROM="${MIRROR_UPGRADE_FROM:-4.22.18}"
 export MIRROR_TEST_OPERATORS="${MIRROR_TEST_OPERATORS:-cincinnati-operator:v1,openshift-cert-manager-operator:stable-v1,lightspeed-operator:stable}"
 mkdir -p "${ROOT}/logs"
 # Start of the egress-audit window: set on a full run, kept when resuming.
-if [ "$FROM" = "${PHASES[0]}" ] || [ ! -s "${ROOT}/logs/.50-run-start" ]; then date -u +%s > "${ROOT}/logs/.50-run-start"; fi
+# Also forget the previous run's OSUS cutoff on a full run.
+if { [ -z "$ONLY" ] || [ "$ONLY" = "${PHASES[0]}" ]; } && { [ "$FROM" = "${PHASES[0]}" ] || [ ! -s "${ROOT}/logs/.50-run-start" ]; }; then
+    date -u +%s > "${ROOT}/logs/.50-run-start"; rm -f "${ROOT}/logs/.50-osus-done"
+fi
 
 env_load() {
     # shellcheck source=../cluster.env
@@ -59,11 +92,14 @@ phase_teardown() {
     env_load
     [ "$YES" -eq 1 ] || { read -r -p "Destroy cluster ${CLUSTER_NAME} and stack ${VPC_STACK_NAME}? [y/N] " a; [ "$a" = y ]; }
     if stack_ready 2>/dev/null; then
-        for h in bastion registry; do
+        # rhel10: the private RHEL 10 install host, if it exists (90-destroy-vpc.sh
+        # terminates it afterwards, by its ocp5:stack tag).
+        for h in bastion registry rhel10; do
             if INSTALL_HOST=$h install_ssh "test -e ~/ocp-install/${CLUSTER_NAME}/metadata.json" 2>/dev/null; then
                 echo "==> Destroying cluster ${CLUSTER_NAME} from the ${h}"
+                # Prefer the installer that installed it (extracted from the mirror).
                 INSTALL_HOST=$h install_ssh "cd ~/ocp-install/${CLUSTER_NAME}; set -a; . ~/ocp-install/aws.env; set +a;
-                    bin=\$(command -v openshift-install || echo ~/bin-mirror/openshift-install-fips);
+                    bin=~/bin-mirror/openshift-install-fips; [ -x \$bin ] || bin=\$(command -v openshift-install);
                     \$bin destroy cluster --dir . --log-level=info 2>&1 | tail -3"
             fi
         done
@@ -98,6 +134,12 @@ phase_validate() {
     registry_ssh 'printf "    quay.io after reboot: %s\n" "$(curl -s -m 10 -o /dev/null -w %{http_code} https://quay.io/v2/ || echo blocked)"'
 }
 
+phase_rhel10host() {
+    if [ "$TEST_INSTALL_HOST" != rhel10 ]; then echo "    TEST_INSTALL_HOST=${TEST_INSTALL_HOST}: no RHEL 10 install host needed"; return 0; fi
+    "${ROOT}/scripts/16-rhel10-host.sh" --private create
+    "${ROOT}/scripts/16-rhel10-host.sh" --private prep
+}
+
 phase_mirror() {
     env_load; stack_ready
     echo "==> ImageSetConfiguration: ${OCP_CHANNEL} ${MIRROR_UPGRADE_FROM} -> ${OCP_VERSION}, operators ${MIRROR_TEST_OPERATORS}"
@@ -114,10 +156,47 @@ phase_mirror() {
         tail -12 m2m.out; exit \$rc"
     echo "    mirror-to-mirror took $(( $(date +%s) - t0 )) s"
     bastion_ssh 'ls ~/oc-mirror/m2m/working-dir/cluster-resources/ | sed "s/^/    /"; du -sh ~/oc-mirror ~/.oc-mirror 2>/dev/null | sed "s/^/    /"'
+    [ "${MIRROR_KUBEVIRT:-false}" = true ] && kubevirt_report
+    return 0
+}
+
+# N-11: which KubeVirt boot images (from the payload's coreos-bootimages ConfigMap,
+# all architectures and streams) did oc-mirror copy? Expected with the bug: only
+# rhel-9.8 x86_64 (b58ab403...), not rhel-10.2 x86_64 (9cf09e8e...).
+kubevirt_report() {
+    echo "==> KubeVirt boot images in this mirror run (kubeVirtContainer: true; N-11)"
+    bastion_ssh 'bash -s' <<'REMOTE'
+w=~/oc-mirror/m2m/working-dir
+log=$(ls -t "$w"/logs/oc-mirror-*.log 2>/dev/null | head -1)
+cm=$(ls "$w"/hold-release/ocp-release/*/release-manifests/0000_50_installer_coreos-bootimages.yaml 2>/dev/null | sort -V | tail -1)
+echo "    oc-mirror log:     ${log:-none}"
+echo "    coreos-bootimages: ${cm:-none}"
+[ -n "$cm" ] && awk -F'"' '/"image": .*coreos-kubevirt"/{tag=$4} /"digest-ref":/ && tag!=""{print tag, $4; tag=""}' "$cm" | sort -u |
+while read -r tag ref; do
+    d=${ref##*@sha256:}
+    if grep -q "Success copying .*@sha256:${d}" "$log" 2>/dev/null; then s=MIRRORED
+    elif grep -qF "${tag}" "$log" 2>/dev/null; then s=tag-in-log
+    else s=not-mirrored; fi
+    case $d in b58ab403*) k=" <- x86_64 rhel-9";; 9cf09e8e*) k=" <- x86_64 rhel-10";; *) k="";; esac
+    printf "    %-13s %-28s sha256:%s%s\n" "$s" "${tag##*:}" "${d:0:12}" "$k"
+done
+echo "    oc-mirror log lines mentioning kubevirt: $(grep -ci kubevirt "$log" 2>/dev/null || true)"
+grep -i kubevirt "$log" 2>/dev/null | head -5 | cut -c1-220 | sed 's/^/      /'
+REMOTE
 }
 
 phase_creds()    { "${ROOT}/scripts/30-fetch-mirror-credentials.sh"; }
-phase_fipshost() { "${ROOT}/scripts/35-enable-fips-host.sh" "$TEST_INSTALL_HOST"; }
+phase_fipshost() {
+    if [ "$TEST_INSTALL_HOST" = rhel10 ]; then
+        # RHEL 10 enables FIPS only at installation (the AMI); no reboot, just verify.
+        env_load; stack_ready
+        local f; f="$(INSTALL_HOST=rhel10 install_ssh 'cat /proc/sys/crypto/fips_enabled')"
+        echo "==> rhel10 install host: fips_enabled=${f}, policy $(INSTALL_HOST=rhel10 install_ssh 'update-crypto-policies --show')"
+        [ "$f" = 1 ] || { echo "Error: the RHEL 10 install host is not in FIPS mode." >&2; return 1; }
+        return 0
+    fi
+    "${ROOT}/scripts/35-enable-fips-host.sh" "$TEST_INSTALL_HOST"
+}
 phase_sts()      { "${ROOT}/scripts/20-prepare-sts.sh"; }
 phase_config()   { "${ROOT}/scripts/generate-install-config.sh"; yq '{"fips": .fips, "osImageStream": .osImageStream, "publish": .publish, "capabilities": .capabilities}' "${ROOT}/install-config.yaml"; }
 phase_extract()  { INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/38-extract-installer.sh"; }
@@ -125,14 +204,91 @@ phase_install() {
     INSTALL_HOST="$TEST_INSTALL_HOST" INSTALLER_BIN='~/bin-mirror/openshift-install-fips' "${ROOT}/scripts/40-install-cluster.sh" start
     INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/40-install-cluster.sh" wait
 }
-phase_post() { INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/45-post-install.sh" all; }
+phase_post() {
+    local a
+    for a in resources cleanup osus; do INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/45-post-install.sh" "$a"; done
+    # From here the CVO asks the local OSUS; api.openshift.com from the cluster after
+    # this point is unexpected in the audit.
+    date -u +%s > "${ROOT}/logs/.50-osus-done"
+    for a in operators status; do INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/45-post-install.sh" "$a"; done
+}
 phase_audit() {
     env_load; stack_ready
-    local since; since="$(cat "${ROOT}/logs/.50-run-start" 2>/dev/null || echo 0)"
-    echo "==> Squid egress since $(date -u -d @"$since" +%FT%TZ): denied CONNECTs by destination"
-    proxy_ssh "sudo awk -v s=$since '\$1>s && \$4 ~ /NONE_NONE|DENIED/ {print \$8}' /var/log/squid/access.log | sort | uniq -c | sort -rn | head -20" | sed 's/^/    /'
-    echo "==> Allowed destinations"
-    proxy_ssh "sudo awk -v s=$since '\$1>s && \$4 ~ /TUNNEL|HIT|MISS/ {print \$8}' /var/log/squid/access.log | sed -E 's/^[^.]+\.//' | sort | uniq -c | sort -rn | head -15" | sed 's/^/    /'
+    local since cutoff cutoff_note inst_ip nodes cidrs proxy_ip tmp verdict_file
+    since="$(cat "${ROOT}/logs/.50-run-start" 2>/dev/null || echo 0)"
+    if [ -n "${EGRESS_CVO_CUTOFF:-}" ]; then cutoff="$EGRESS_CVO_CUTOFF"; cutoff_note="EGRESS_CVO_CUTOFF"
+    elif [ -s "${ROOT}/logs/.50-osus-done" ]; then cutoff="$(cat "${ROOT}/logs/.50-osus-done")"; cutoff_note="post phase (logs/.50-osus-done)"
+    else cutoff=9999999999; cutoff_note="none: the CVO was not pointed at OSUS in this run"; fi
+    proxy_ip="$(stack_output ProxyPrivateIp)"
+    inst_ip="$(INSTALL_HOST="$TEST_INSTALL_HOST" install_host_ip 2>/dev/null || true)"
+    nodes="$(INSTALL_HOST="$TEST_INSTALL_HOST" install_ssh "KUBECONFIG=~/ocp-install/${CLUSTER_NAME}/auth/kubeconfig oc get nodes \
+              -o jsonpath='{range .items[*]}{.status.addresses[?(@.type==\"InternalIP\")].address}{\" \"}{end}'" 2>/dev/null || true)"
+    # Private subnets: sources there that are not a known host are cluster machines
+    # that are gone or not nodes (bootstrap).
+    # shellcheck disable=SC2046
+    cidrs="$(aws ec2 describe-subnets --subnet-ids $(stack_output PrivateSubnetIds | tr ',' ' ') \
+              --query 'Subnets[].CidrBlock' --output text 2>/dev/null || true)"
+
+    echo "==> Squid egress since $(date -u -d @"$since" +%FT%TZ)"
+    echo "    install host (${TEST_INSTALL_HOST}): ${inst_ip:-n/a}   registry: ${REGISTRY_IP}   squid: ${proxy_ip}"
+    echo "    cluster nodes: ${nodes:-unknown (no kubeconfig on the install host)}   private subnets: ${cidrs:-unknown}"
+    if [ "$cutoff" = 9999999999 ]; then echo "    CVO -> OSUS: ${cutoff_note}"
+    else echo "    CVO -> OSUS at $(date -u -d @"$cutoff" +%FT%TZ) (${cutoff_note})"; fi
+
+    tmp="$(mktemp)"
+    # Fields of the 'egress' logformat: $1 epoch, $3 client, $4 result, $7 URL (host:port), $8 SNI.
+    # Rotated logs (plain or .gz) are included; zcat -f passes plain files through.
+    proxy_ssh "sudo sh -c 'zcat -f /var/log/squid/access.log* 2>/dev/null' | awk -v s=$since '\$1>s && \$4 ~ /NONE_NONE|DENIED/ {print \$1, \$3, \$7, \$8}'" | sort -n > "$tmp"
+
+    verdict_file="${ROOT}/logs/50-egress-verdict-$(date -u +%Y%m%dT%H%M%SZ).txt"
+    awk -v nodes="$nodes" -v cidrs="$cidrs" -v inst="$inst_ip" -v insthost="$TEST_INSTALL_HOST" \
+        -v reg="$REGISTRY_IP" -v proxy="$proxy_ip" -v cutoff="$cutoff" '
+        function ip2n(ip,  a) { split(ip, a, "."); return ((a[1]*256 + a[2])*256 + a[3])*256 + a[4] }
+        function incidr(ip, c,  p, m) { if (ip !~ /^[0-9.]+$/) return 0; split(c, p, "/"); m = 2^(32 - p[2]); return int(ip2n(ip)/m) == int(ip2n(p[1])/m) }
+        function hms(t) { return strftime("%m-%dT%H:%M:%S", t, 1) }
+        BEGIN { n = split(nodes, na, " "); for (i = 1; i <= n; i++) isnode[na[i]] = 1; nc = split(cidrs, ca, /[ \t]+/) }
+        {
+            ts = $1; src = $2; url = $3; sni = $4
+            dst = (sni != "-" && sni != "") ? sni : url; sub(/:[0-9]+$/, "", dst)
+            if (src in isnode)                         cls = "cluster-node"
+            else if (inst != "" && src == inst)        cls = "install-host(" insthost ")"
+            else if (src == reg)                       cls = "registry-node"
+            else if (src == "127.0.0.1" || src == proxy) cls = "squid-self"
+            else { cls = "other"; for (i = 1; i <= nc; i++) if (incidr(src, ca[i])) { cls = "cluster-other"; break } }
+            cluster = (cls == "cluster-node" || cls == "cluster-other")
+            if (dst == "172.30.0.1")                                   v = "known: kubernetes service VIP (joining workers)"
+            else if (cluster && dst ~ /(^|\.)quay\.io$/)                v = "known: image-signature-import (OCPBUGS-77404)"
+            else if (cluster && dst == "api.openshift.com" && ts < cutoff) v = "known: install-time CVO (before OSUS)"
+            else if (cluster)                                           v = "UNEXPECTED"
+            else                                                        v = "info: host tooling/tests (not in verdict)"
+            k = cls SUBSEP dst SUBSEP v
+            cnt[k]++; if (!(k in first)) first[k] = ts; last[k] = ts
+            if (cluster && dst ~ /(^|\.)quay\.io$/) burst[strftime("%m-%dT%H:%M", ts, 1)]++
+            if (v == "UNEXPECTED") { unexp[dst " from " cls]++; nunexp++ }
+            total++
+        }
+        END {
+            printf "    %-22s %-34s %6s  %-14s %-14s %s\n", "SOURCE", "DESTINATION", "COUNT", "FIRST (UTC)", "LAST (UTC)", "CLASS"
+            PROCINFO["sorted_in"] = "@ind_str_asc"
+            for (k in cnt) { split(k, f, SUBSEP)
+                printf "    %-22s %-34s %6d  %-14s %-14s %s\n", f[1], f[2], cnt[k], hms(first[k]), hms(last[k]), f[3] }
+            if (length(burst)) {
+                printf "    quay.io from the cluster by minute (expected: hourly bursts of ~22 at hh:59-hh:00, plus leader changes):\n"
+                line = ""; for (m in burst) line = line sprintf(" %s=%d", m, burst[m]); print "     " line
+            }
+            printf "    denied CONNECTs in the window: %d\n", total
+            if (nunexp == 0) print "EGRESS VERDICT: PASS (only known exceptions)"
+            else { s = ""; for (u in unexp) s = s (s == "" ? "" : ", ") u " x" unexp[u]; print "EGRESS VERDICT: FAIL (unexpected: " s ")" }
+        }' "$tmp" | tee "$verdict_file"
+    rm -f "$tmp"
+    echo "    verdict saved: ${verdict_file#"${ROOT}"/}"
+
+    echo "==> Allowed destinations (by domain)"
+    proxy_ssh "sudo sh -c 'zcat -f /var/log/squid/access.log* 2>/dev/null' | awk -v s=$since '\$1>s && \$4 ~ /TUNNEL|HIT|MISS/ {print \$8}' | sed -E 's/^[^.]+\.//' | sort | uniq -c | sort -rn | head -15" | sed 's/^/    /'
+    if [ "$STRICT_EGRESS" -eq 1 ] && grep -q '^EGRESS VERDICT: FAIL' "$verdict_file"; then
+        echo "--strict-egress: unexpected egress from the cluster" >&2; return 1
+    fi
+    return 0
 }
 
 started=0

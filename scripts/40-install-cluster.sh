@@ -13,10 +13,15 @@
 #   fetch-auth  copy <install dir>/auth (kubeconfig, kubeadmin password) to
 #               clusters/<CLUSTER_NAME>/auth here (mode 600)
 #
-# The install host is INSTALL_HOST (cluster.env): the mirror-registry node in the
-# private subnet by default (egress only via the Squid allowlist), or the bastion
-# (needed for FIPS installs, which require a FIPS-mode host). The cluster API is internal (publish: Internal),
-# so the installer has to run inside the VPC anyway.
+# The install host is INSTALL_HOST (cluster.env):
+#   registry  the mirror-registry node in the private subnet (egress only via the
+#             Squid allowlist); FIPS installs need scripts/35-enable-fips-host.sh registry
+#   bastion   the public bastion (internet access)
+#   rhel10    a RHEL 10 FIPS image-mode host in the private subnet, FIPS from
+#             installation (scripts/16-rhel10-host.sh --private create + prep);
+#             user cloud-user, home /var/home/cloud-user
+# FIPS installs require a FIPS-mode host. The cluster API is internal (publish:
+# Internal), so the installer has to run inside the VPC anyway.
 #
 # Prerequisites: scripts/30-fetch-mirror-credentials.sh,
 # scripts/generate-install-config.sh, scripts/20-prepare-sts.sh.
@@ -38,7 +43,7 @@ INSTALLER_BIN="${INSTALLER_BIN:-openshift-install}"
 . "${ROOT}/scripts/lib-stack.sh"
 stack_ready
 
-RDIR="ocp-install/${CLUSTER_NAME}"           # relative to ec2-user's home on the host
+RDIR="ocp-install/${CLUSTER_NAME}"           # relative to the install host user's home (~ expands there)
 LOG_LEVEL="${LOG_LEVEL:-info}"
 
 remote_status() {
@@ -57,7 +62,7 @@ start)
             || { echo "Error: credentialsMode Manual but no ccoctl output in ${CC}; run scripts/20-prepare-sts.sh." >&2; exit 1; }
     fi
     if install_ssh "test -e ~/${RDIR}/metadata.json || pgrep -f '[o]penshift-install[-a-z]* create cluster' >/dev/null"; then
-        echo "Error: ~/${RDIR} on ${REGISTRY_HOST} already holds an install (or one is running)." >&2
+        echo "Error: ~/${RDIR} on $(install_host_name) already holds an install (or one is running)." >&2
         echo "       Check it with: $0 status   - destroy it before starting again." >&2
         exit 1
     fi
@@ -65,7 +70,11 @@ start)
     echo "==> Install host: ${INSTALL_HOST:-registry} ($(install_host_name))"
     if [ "$(yq -r '.fips' "$IC")" = "true" ]; then
         [ "$(install_ssh 'cat /proc/sys/crypto/fips_enabled')" = "1" ] \
-            || { echo "Error: fips: true needs a FIPS-mode install host; run scripts/35-enable-fips-host.sh ${INSTALL_HOST:-registry}." >&2; exit 1; }
+            || { if [ "${INSTALL_HOST:-registry}" = rhel10 ]; then
+                     echo "Error: fips: true needs a FIPS-mode install host; the RHEL 10 host is not (RHEL 10 enables FIPS only at installation: use a FIPS AMI)." >&2
+                 else
+                     echo "Error: fips: true needs a FIPS-mode install host; run scripts/35-enable-fips-host.sh ${INSTALL_HOST:-registry}." >&2
+                 fi; exit 1; }
         echo "    install host is in FIPS mode; using openshift-install-fips"
     fi
     # INSTALLER_BIN: path of the installer on the install host. Default: the

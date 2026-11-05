@@ -4,7 +4,7 @@
 #                           release payload in the mirror registry, on the
 #                           install host, without internet access (I1, F1).
 #
-# Usage: INSTALL_HOST=registry|bastion scripts/38-extract-installer.sh
+# Usage: INSTALL_HOST=registry|bastion|rhel10 scripts/38-extract-installer.sh
 #
 # Runs `oc adm release extract --command=openshift-install-fips` on the install
 # host against <mirror>/<namespace>/openshift/release-images:<OCP_VERSION>-x86_64,
@@ -18,6 +18,9 @@
 #
 # Needs install-config.yaml (generate-install-config.sh) and the mirror pull
 # secret (INSTALL_PULL_SECRET_FILE). Both are copied mode 600 and removed after.
+# Needs `oc` on the install host's PATH. INSTALL_HOST=rhel10 (private RHEL 10
+# FIPS host, home /var/home/cloud-user): run `scripts/16-rhel10-host.sh --private
+# prep` first, which copies the bastion's oc there (no internet, no dnf repos).
 
 set -euo pipefail
 
@@ -45,13 +48,15 @@ yq '{"apiVersion": "config.openshift.io/v1", "kind": "ImageDigestMirrorSet",
 
 echo "==> Install host: ${INSTALL_HOST:-registry} ($(install_host_name))"
 echo "    release in mirror: ${REF}"
+install_ssh "command -v oc >/dev/null" \
+    || { echo "Error: no oc on the install host's PATH (INSTALL_HOST=rhel10: scripts/16-rhel10-host.sh --private prep)." >&2; exit 1; }
 install_ssh "umask 077; mkdir -p ~/bin-mirror ~/.extract-tmp"
 install_scp "$INSTALL_PULL_SECRET_FILE" ".extract-tmp/auth.json"
 install_scp "$IDMS" ".extract-tmp/idms.yaml"
 install_scp "$MIRROR_CA_FILE" ".extract-tmp/ca.pem"
 
 install_ssh "set -e; cd ~/.extract-tmp
-    echo \"    egress check (expect failure on the registry node): quay.io \$(curl -s -m 5 -o /dev/null -w %{http_code} https://quay.io/v2/ || echo blocked)\"
+    echo \"    egress check (expect blocked on a private-subnet host): quay.io \$(curl -s -m 5 -o /dev/null -w %{http_code} https://quay.io/v2/ || echo blocked)\"
     oc adm release info --idms-file idms.yaml -a auth.json --certificate-authority ca.pem '${REF}' 2>&1 | sed -n '1,6p' | sed 's/^/    /'
     for c in openshift-install-fips oc; do
         oc adm release extract --idms-file idms.yaml -a auth.json --certificate-authority ca.pem \
@@ -59,6 +64,7 @@ install_ssh "set -e; cd ~/.extract-tmp
     done
     ls -l ~/bin-mirror | sed 's/^/    /'
     ~/bin-mirror/openshift-install-fips version | head -3 | sed 's/^/    /'
+    # go is not installed on every host (not on the RHEL 10 image): optional.
     go version -m ~/bin-mirror/openshift-install-fips 2>/dev/null | grep -E 'CGO_ENABLED|GOEXPERIMENT' | sed 's/^/    /' || true"
 install_ssh "rm -rf ~/.extract-tmp"
 echo "==> Use it with: INSTALL_HOST=${INSTALL_HOST:-registry} INSTALLER_BIN='~/bin-mirror/openshift-install-fips' scripts/40-install-cluster.sh start"

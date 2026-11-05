@@ -11,6 +11,8 @@
 #   MIRROR_OPERATORS             "pkg" or "pkg:channel", comma-separated
 #   MIRROR_ADDITIONAL_IMAGES     fully qualified images, comma-separated
 #   MIRROR_GRAPH                 build the OSUS graph-data image
+#   MIRROR_KUBEVIRT              true: mirror.platform.kubeVirtContainer (RHCOS
+#                                KubeVirt boot image, for HCP on OpenShift Virtualization)
 #
 # ONE platform channel only, always. An upgrade start version goes into the 5.x
 # channel as minVersion with shortestPath. Listing a 4.x and a 5.x channel
@@ -30,7 +32,7 @@ OUTPUT_FILE="${ROOT}/imageset-config.yaml"
 while [ $# -gt 0 ]; do
     case "$1" in
         -o|--output) OUTPUT_FILE="$2"; shift 2 ;;
-        -h|--help)   sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help)   sed -n '2,26p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "generate-imageset-config.sh: unknown option '$1'" >&2; exit 2 ;;
     esac
 done
@@ -86,7 +88,12 @@ mirror:
   additionalImages: []
 EOF
 
-V_CH="$OCP_CHANNEL" V_MIN="$MIN" V_MAX="$OCP_VERSION" V_GRAPH="$MIRROR_GRAPH" \
+case "${MIRROR_KUBEVIRT:-false}" in
+    true|false) ;;
+    *) echo "Error: MIRROR_KUBEVIRT must be true or false (got '${MIRROR_KUBEVIRT}')." >&2; exit 1 ;;
+esac
+
+V_CH="$OCP_CHANNEL" V_MIN="$MIN" V_MAX="$OCP_VERSION" V_GRAPH="$MIRROR_GRAPH" V_KUBEVIRT="${MIRROR_KUBEVIRT:-false}" \
 V_OPS="$(jq -n -c --arg cat "$CATALOG" --argjson p "$PKGS_JSON" 'if ($p|length) > 0 then [{catalog: $cat, packages: $p}] else [] end')" \
 V_IMGS="$IMGS_JSON" \
 yq -i '
@@ -94,6 +101,7 @@ yq -i '
                                     "minVersion": strenv(V_MIN), "maxVersion": strenv(V_MAX),
                                     "shortestPath": true}]
     | .mirror.platform.graph = env(V_GRAPH)
+    | (select(strenv(V_KUBEVIRT) == "true") | .mirror.platform.kubeVirtContainer) = true
     | .mirror.operators = env(V_OPS)
     | .mirror.additionalImages = env(V_IMGS)
     | ... style=""' \
@@ -104,4 +112,5 @@ yq -i 'del(.mirror.operators | select(length == 0)) | del(.mirror.additionalImag
 
 echo "==> Wrote ${OUTPUT_FILE}"
 echo "    channel=${OCP_CHANNEL} ${MIN} -> ${OCP_VERSION}  catalog=${CATALOG}"
+echo "    kubeVirtContainer=${MIRROR_KUBEVIRT:-false}"
 echo "    operators=$(printf '%s' "$PKGS_JSON" | jq -r 'map(.name) | join(",") | if .=="" then "(none)" else . end')"
