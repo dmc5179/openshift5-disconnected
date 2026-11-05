@@ -1,0 +1,56 @@
+kube-apiserver(direct)                                                                10.0.49.234:6443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+kubelet(master)                                                                       10.0.49.234:10250      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+kubelet(worker)                                                                       10.0.48.66:10250       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+etcd-client                                                                           10.0.49.234:2379       ERR
+etcd-peer                                                                             10.0.49.234:2380       ERR
+kube-controller-manager                                                               10.0.49.234:10257      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+kube-scheduler                                                                        10.0.49.234:10259      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+machine-config-server                                                                 10.0.49.234:22623      ERR
+node-exporter(kube-rbac-proxy)                                                        10.0.48.66:9100        full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-oauth-apiserver/apiserver/oauth-apiserver:                                  10.129.0.87:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-authentication/oauth-openshift/oauth-openshift:https                        10.128.0.101:6443      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-apiserver/apiserver/openshift-apiserver-check-endpoints:check-endpoints     10.129.0.86:17698      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-apiserver/apiserver/openshift-apiserver:                                    10.129.0.86:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-console/console/console:https                                               10.128.0.109:8443      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-console/downloads/download-server:http                                      10.130.0.86:8080       not-TLS
+openshift-monitoring/alertmanager/alertmanager:mesh-tcp                               10.128.2.26:9094       not-TLS
+openshift-monitoring/alertmanager/kube-rbac-proxy-metric:metrics                      10.128.2.26:9097       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/alertmanager/kube-rbac-proxy-web:web                             10.128.2.26:9095       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/alertmanager/kube-rbac-proxy:tenancy                             10.128.2.26:9092       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/cluster-monitoring-operator/cluster-monitoring-operator:https    10.129.0.117:8443      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/kube-state-metrics/kube-rbac-proxy-main:https-main               10.131.0.31:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/kube-state-metrics/kube-rbac-proxy-self:https-self               10.131.0.31:9443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/metrics-server/metrics-server:https                              10.130.0.97:10250      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/monitoring-plugin/monitoring-plugin:https                        10.131.0.23:9443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/node/kube-rbac-proxy:https                                       10.0.49.234:9100       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/openshift-state-metrics/kube-rbac-proxy-main:https-main          10.131.0.30:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/openshift-state-metrics/kube-rbac-proxy-self:https-self          10.131.0.30:9443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/prometheus-operator-admission-webhook/prometheus-operator-admission-webhook:https 10.131.0.24:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/prometheus-operator/kube-rbac-proxy:https                        10.130.0.85:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/prometheus/kube-rbac-proxy-thanos:thanos-proxy                   10.128.2.29:10903      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/prometheus/kube-rbac-proxy-web:web                               10.128.2.29:9091       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/prometheus/kube-rbac-proxy:metrics                               10.128.2.29:9092       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/prometheus/thanos-sidecar:grpc                                   10.128.2.29:10901      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/prometheus/thanos-sidecar:http                                   10.128.2.29:10902      ERR
+openshift-monitoring/thanos-querier/kube-rbac-proxy-metrics:metrics                   10.128.2.28:9094       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/thanos-querier/kube-rbac-proxy-rules:tenancy-rules               10.128.2.28:9093       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/thanos-querier/kube-rbac-proxy-web:web                           10.128.2.28:9091       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/thanos-querier/kube-rbac-proxy:tenancy                           10.128.2.28:9092       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-monitoring/thanos-querier/thanos-query:http                                 10.128.2.28:9090       ERR
+openshift-image-registry/cluster-image-registry-operator/cluster-image-registry-operator:metrics 10.130.0.105:60000     full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-image-registry/image-registry/registry:                                     10.131.0.43:5000       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-update-service/update-service-oc-mirror/graph-builder:graph-builder         10.131.0.42:8080       not-TLS
+openshift-update-service/update-service-oc-mirror/graph-builder:status-gb             10.131.0.42:9080       not-TLS
+openshift-update-service/update-service-oc-mirror/policy-engine:policy-engine         10.131.0.42:8081       not-TLS
+openshift-update-service/update-service-oc-mirror/policy-engine:status-pe             10.131.0.42:9081       not-TLS
+cert-manager/cert-manager-cainjector/cert-manager-cainjector:http-metrics             10.128.2.34:9402       not-TLS
+cert-manager/cert-manager-webhook/cert-manager-webhook:healthcheck                    10.128.2.33:6080       not-TLS
+cert-manager/cert-manager-webhook/cert-manager-webhook:http-metrics                   10.128.2.33:9402       not-TLS
+cert-manager/cert-manager-webhook/cert-manager-webhook:https                          10.128.2.33:10250      full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+cert-manager/cert-manager/cert-manager-controller:http-healthz                        10.128.2.36:9403       not-TLS
+cert-manager/cert-manager/cert-manager-controller:http-metrics                        10.128.2.36:9402       not-TLS
+cert-manager-operator/cert-manager-operator-controller-manager/cert-manager-operator:https 10.131.0.44:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-lightspeed/lightspeed-agentic-operator-controller-manager/manager:health    10.128.2.38:8081       not-TLS
+openshift-lightspeed/lightspeed-agentic-operator-controller-manager/manager:metrics   10.128.2.38:8080       not-TLS
+openshift-lightspeed/lightspeed-agentic-operator-controller-manager/manager:webhook   10.128.2.38:9443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
+openshift-lightspeed/lightspeed-operator-controller-manager/manager:metrics           10.128.2.39:8443       full=[TLSv1.3 ECDH, prime256v1] p256mlkem=[REJECT] x25519mlkem=[REJECT]
