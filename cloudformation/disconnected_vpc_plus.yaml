@@ -124,8 +124,10 @@ Parameters:
 
   RegistryInstanceType:
     Type: String
-    Default: t3.large
-    Description: Instance type to use to launch the Registry instance.
+    Default: m6i.xlarge
+    Description: >-
+      Instance type for the registry node (mirror-registry / Quay, and an install host). A t3.large
+      (burstable) struggled with 23-45 GB mirror pushes.
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -1023,6 +1025,20 @@ Resources:
             sed -E 's/credentials \(init, [^)]*\)/credentials (init, <redacted>)/' /tmp/mirror-registry-install.log
             [ $mr_rc -eq 0 ] || fail "mirror-registry install exited $mr_rc"
             #./mirror-registry install 2>&1 | tee mirror-registry.log # probably should do this as the ec2-user
+
+            # N-9 / PROJQUAY-14321: after a reboot quay-app and quay-redis start before the quay-pod
+            # infra container exists ("no pod with name or ID quay-pod found", exit 125) and only
+            # recover through the systemd restart timer (~3.5 min outage). Their units already order
+            # After=quay-pod.service, but quay-pod is Type=simple, so systemd counts it as started
+            # before `podman pod create` finishes (and Type=oneshot is not allowed with its
+            # Restart=always). Wait for the pod to exist before starting them.
+            for unit in quay-redis quay-app; do
+              mkdir -p /etc/systemd/system/$unit.service.d
+              printf '%s\n' '[Service]' \
+                'ExecStartPre=/usr/bin/timeout 120 /bin/sh -c "until /usr/bin/podman pod exists quay-pod; do sleep 2; done"' \
+                > /etc/systemd/system/$unit.service.d/10-wait-for-quay-pod.conf
+            done
+            systemctl daemon-reload
 
             cp /opt/quay-root/quay-rootCA/rootCA.pem /etc/pki/ca-trust/source/anchors/quay.pem || fail "Quay root CA not found"
             update-ca-trust
