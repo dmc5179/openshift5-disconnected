@@ -122,6 +122,30 @@ controller-manager logs show none either. The quay.io callers are pods making th
 need to be identified (conntrack or a packet capture on the node). Earlier audits looked only for
 registry.redhat.io, so installs 1-3 probably had the same traffic.
 
+## Install 5: RHEL 10 FIPS image-mode install host in the private subnet (2026-11-05)
+
+Fresh stack: RHEL 9.8 Squid and registry nodes (newest Red Hat AMI), m6i.xlarge registry, Quay boot-order fix,
+IMDSv2, scoped IAM. The install host was a **RHEL 10.2 FIPS image-mode (bootc) instance in the private subnet**:
+no internet, egress only through the Squid allowlist. Its tools were copied in from the bastion, and
+`openshift-install-fips` was extracted from the mirror on that host. Day 0: FIPS, `rhel-10` stream, Insights and
+samples capabilities off, Lightspeed button disabled, OLM v1 default catalogs Unavailable, mirror CA for ImageStreams,
+console telemetry annotations.
+
+| Check | Result |
+|---|---|
+| Template | IMDSv1 401 / IMDSv2 200 on all three hosts; staging bucket readable, `s3 ls` of all buckets denied; Squid blocks quay.io and registry.redhat.io; port 3128 denies google.com; rules survive a Squid reboot |
+| RHEL 10 install host | FIPS (`fips_enabled=1`, policy FIPS); rhel9 `oc` 5.0.0 installed; mirror health 200 with the system trust; quay.io blocked |
+| Installer extraction | 34 s on the RHEL 10 host from the mirror |
+| **Install** | **42m32s** from the RHEL 10 FIPS host, no intervention. 5.0.0, 32/32 operators available, RHCOS 10.2 FIPS nodes |
+| Post-install | OSUS 5.0.3 + CVO upstream (`RetrievedUpdates=True`); cert-manager 1.20.1 via OLM v1 (`Installed=True`); lightspeed-operator installed with `LightspeedButton` Disabled and no Lightspeed console plugin; 0 image pull failures |
+| **N-11 (kubeVirtContainer)** | oc-mirror 2.0.0 with `kubeVirtContainer: true` mirrored only the RHCOS 9.8 KubeVirt image (`sha256:b58ab403...`); the RHCOS 10.2 image (`sha256:9cf09e8e...`) was **not** mirrored. Confirmed live |
+
+**Egress verdict: FAIL, caused by our post-install script, not the product.**
+- **Console telemetry:** **no api.openshift.com calls after the CVO was pointed at the local update service.** The day-0 console telemetry annotations worked.
+- **Known exceptions only:** quay.io bursts (OCPBUGS-77404), install-time CVO calls, and the kubernetes service address.
+- **The 2 unexpected attempts** were registry.redhat.io from one worker at 05:23:01-16. An OLM bundle-unpack pod pulled the update-service bundle about a minute after the operator IDMS was applied, before the MachineConfig rollout had put the mirror mapping on that node. It succeeded through the mirror 30 s later.
+- **Fix:** `45-post-install.sh` now waits for the MachineConfigPools after applying mirror resources (768ee98).
+
 ## Reproduce
 
 ```bash
@@ -132,5 +156,7 @@ scripts/generate-install-config.sh               # FIPS on by default; day-0 man
 scripts/20-prepare-sts.sh
 scripts/35-enable-fips-host.sh bastion
 INSTALL_HOST=bastion scripts/40-install-cluster.sh start
+# or the whole run, with the RHEL 10 FIPS host in the private subnet as install host:
+#   TEST_INSTALL_HOST=rhel10 scripts/50-rebuild-and-test.sh --yes
 INSTALL_HOST=bastion scripts/40-install-cluster.sh wait
 ```
