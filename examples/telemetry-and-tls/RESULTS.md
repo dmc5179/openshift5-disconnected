@@ -284,3 +284,31 @@ sends key shares for X25519MLKEM768 and X25519 first. The server accepts neither
 
 - The two telemetry annotations stay on `consoles.operator.openshift.io/cluster` (removal command above).
 - No pods, debug sessions or background jobs are left running. The T2 tests were read-only.
+
+## Recheck on a second FIPS cluster, with FIPS and non-FIPS clients (2026-11-05)
+Cluster: install 5 (5.0.0, RHCOS 10.2, FIPS, installed from a RHEL 10.2 FIPS host). Default Intermediate TLS profile.
+
+**Server side (unchanged from 2026-11-04)** [LAB]. Clients: a non-FIPS RHEL 9.8 host (OpenSSL 3.5.8) and a FIPS RHEL 10.2 host (OpenSSL 3.5.8, policy FIPS).
+
+| Client | Offers | API :6443 and ingress :443 |
+|---|---|---|
+| non-FIPS | `X25519MLKEM768` only | handshake failure (alert 40) |
+| non-FIPS | `X25519` only | handshake failure |
+| non-FIPS | `SecP256r1MLKEM768` only | handshake failure |
+| non-FIPS | `X25519MLKEM768:X25519:secp256r1:secp384r1` | **silently negotiates ECDH P-256** (`Peer Temp Key: ECDH, prime256v1`), TLS_AES_128_GCM_SHA256 |
+| non-FIPS | `secp256r1` / `secp384r1` | P-256 / P-384 |
+| FIPS (RHEL 10.2) | `X25519MLKEM768` | not offered: `SSL_CONF_cmd(-groups, X25519MLKEM768)` fails on the client |
+| FIPS (RHEL 10.2) | `SecP256r1MLKEM768` only | handshake failure: the cluster doesn't offer it |
+| FIPS (RHEL 10.2) | `SecP256r1MLKEM768:secp256r1` | silently falls back to P-256 |
+
+**Client side: RHEL 10.2 in FIPS mode can do a PQC hybrid** [LAB]
+- `openssl list -tls-groups -tls1_3` in FIPS mode: secp256r1, secp384r1, secp521r1, brainpool, ffdhe*, **SecP256r1MLKEM768**. No X25519 or X25519MLKEM768.
+- A local `s_server`/`s_client` handshake, both ends in FIPS mode, negotiated **`SecP256r1MLKEM768`**.
+- `openssl list -kem-algorithms`: `SecP256r1MLKEM768 @ default`, `SecP384r1MLKEM1024 @ default`. **The ML-KEM part comes from the default provider, not the FIPS provider.** The FIPS provider is `Red Hat Enterprise Linux 9 - OpenSSL FIPS Provider 3.0.7`, which has no ML-KEM. [INFER] RHEL 10 permits the hybrid in FIPS mode because the key-exchange security rests on the approved P-256 ECDH component; whether that counts as FIPS 140-3 compliant for a given customer is a compliance question.
+
+**What this means**
+1. **Silent downgrade.** A FIPS OpenShift 5.0 cluster has no post-quantum key exchange on the API or ingress. Modern clients that offer hybrid plus classical groups fall back to classical P-256 with no error, warning, condition or metric. Customers who enable FIPS and expect 5.0's "quantum-safe by default" TLS won't notice they don't have it.
+2. **Visible failures for some clients.** Clients restricted to X25519, or to PQC-only groups, fail the handshake. The docs don't say X25519 is unavailable in FIPS mode.
+3. **A FIPS-compatible hybrid exists but isn't used.** RHEL 10.2 in FIPS mode supports `SecP256r1MLKEM768`, but the OpenShift TLS profiles only list `X25519MLKEM768`, `X25519`, `secp256r1` and `secp384r1`, so even FIPS client to FIPS cluster connections end up classical.
+4. **Can't be configured.** `spec.tlsSecurityProfile.custom.groups` is documented, but the 5.0.0 API on a Default cluster returns "unknown field" and drops it, a silent misconfiguration risk with GitOps. Administrators can't add `SecP256r1MLKEM768` themselves.
+5. **Not tested yet:** other TLS servers (OAuth, kubelet, etcd peers, metrics, webhooks); operator operands that use their own TLS stacks (for example OSUS, built on RHEL 8 / OpenSSL 1.1.1, which has no ML-KEM at all); non-FIPS clusters (expected to negotiate X25519MLKEM768); and the RHEL 10 / RHCOS 10 CMVP certificate status (F3).
