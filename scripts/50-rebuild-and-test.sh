@@ -259,6 +259,7 @@ phase_audit() {
             if (dst == "172.30.0.1")                                   v = "known: kubernetes service VIP (joining workers)"
             else if (cluster && dst ~ /(^|\.)quay\.io$/)                v = "known: image-signature-import (OCPBUGS-77404)"
             else if (cluster && dst == "api.openshift.com" && ts < cutoff) v = "known: install-time CVO (before OSUS)"
+            else if (cluster && dst == "data.iana.org")               v = "known (temporary, unattributed): daily 00:00 UTC, probably unbound-anchor (N-12)"
             else if (cluster)                                           v = "UNEXPECTED"
             else                                                        v = "info: host tooling/tests (not in verdict)"
             k = cls SUBSEP dst SUBSEP v
