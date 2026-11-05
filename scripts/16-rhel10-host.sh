@@ -109,8 +109,9 @@ do_prep() {
         q=\$(curl -s -m 10 -o /dev/null -w %{http_code} https://quay.io/v2/ || echo blocked)
         echo \"    quay.io (must be blocked): \$q\"
         [ \"\$h\" = 200 ] || { echo 'Error: mirror registry not reachable with the CA.' >&2; exit 1; }
-        [ \"\$q\" = blocked ] || { echo 'Error: quay.io is reachable; the host is not air-gapped.' >&2; exit 1; }
-        [ \"\$a\" != fail ] || echo '    WARNING: the AWS API is not reachable; openshift-install will fail.'"
+        # curl prints 000 and then the || fallback appends 'blocked': treat any 000 as unreachable.
+        case \"\$q\" in 000*|*blocked) ;; *) echo 'Error: quay.io is reachable; the host is not air-gapped.' >&2; exit 1 ;; esac
+        case \"\$a\" in 000*|*fail) echo '    WARNING: the AWS API is not reachable; openshift-install will fail.' ;; esac"
     echo "==> Ready: INSTALL_HOST=rhel10 (scripts/38-extract-installer.sh, 40-install-cluster.sh)"
 }
 
