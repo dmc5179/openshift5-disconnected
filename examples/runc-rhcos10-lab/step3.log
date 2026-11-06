@@ -1,0 +1,18 @@
+2026-11-06T14:36:55Z
+machineconfig.machineconfiguration.openshift.io/00-override-runc-test-generated-crio-default-container-runtime created
+containerruntimeconfig.machineconfiguration.openshift.io "runc-test" deleted
+2026-11-06T14:37:56Z
+NAME        CONFIG                                                UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+runc-test   rendered-runc-test-fdffd893dff5a828afc44a49f5307692   True      False      False      1              1                   1                     0                      9m56s
+00-override-runc-test-generated-crio-default-container-runtime                                              3.5.0             62s
+rendered-runc-test-6640ec60add07bb5162e8cef825401a9              e37b109010d1c5664b8f651733b35b538eb9cf01   3.5.0             9m51s
+rendered-runc-test-fdffd893dff5a828afc44a49f5307692              e37b109010d1c5664b8f651733b35b538eb9cf01   3.5.0             7m14s
+boot: 8a2e13bd-e6e2-40cb-8221-09b498513ddd default_runtime = "runc"
+waiting 6 min for the CO evaluation and the alert
+EvaluationConditionsDetected=False AsExpected: 
+ALERT RuncDeprecated pending info  This cluster is using the deprecated runc container runtime
+METRIC 10.0.49.234:9637 crun 1
+METRIC 10.0.59.108:9637 crun 1
+METRIC 10.0.48.66:9637 crun 1
+METRIC 10.0.61.142:9637 crun 1
+METRIC 10.0.55.41:9637 runc 1

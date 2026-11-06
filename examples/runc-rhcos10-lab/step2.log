@@ -1,0 +1,27 @@
+2026-11-06T14:30:37Z
+machineconfigpool.machineconfiguration.openshift.io/runc-test patched
+14:30:37 True/True/False
+14:31:28 False/False/True
+14:32:28 False/False/True
+14:35:30 False/False/True
+2026-11-06T14:36:21Z
+NAME        CONFIG                                                UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+runc-test   rendered-runc-test-fdffd893dff5a828afc44a49f5307692   True      False      False      1              1                   1                     0                      8m20s
+PinnedImageSetsDegraded=False 
+NodeDegraded=False 
+RenderDegraded=False 
+Degraded=False 
+Updated=True All nodes are updated with MachineConfig rendered-runc-test-fdffd893dff5a828afc44a49f5307692
+Updating=False 
+PRETTY_NAME="Red Hat Enterprise Linux CoreOS 9.8.20261026-0 (Plow)"
+8a2e13bd-e6e2-40cb-8221-09b498513ddd
+/usr/bin/runc
+    default_runtime = "runc"
+[crio]
+  [crio.runtime]
+    default_runtime = "runc"
+Progressing=False : Cluster version is 5.0.0
+Degraded=False : 
+Available=True AsExpected: Cluster has deployed [{operator 5.0.0} {operator-image quay.io/openshift-release-dev/ocp-v5.0-art-dev@sha256:bfe34098914bedb8e3f2cf54c47cfe41666d0f358dd302eab104df86ce3c050d}]
+Upgradeable=True AsExpected: 
+EvaluationConditionsDetected=True runc: transition to default crun: 

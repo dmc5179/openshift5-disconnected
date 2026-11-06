@@ -1,0 +1,29 @@
+machineconfigpool.machineconfiguration.openshift.io/runc-test labeled
+2026-11-06T14:28:47Z
+containerruntimeconfig.machineconfiguration.openshift.io/runc-test created
+--- ctrcfg status
+Success=True Success
+--- generated MCs
+99-runc-test-generated-containerruntime               e37b109010d1c5664b8f651733b35b538eb9cf01   3.5.0             90s
+rendered-runc-test-6640ec60add07bb5162e8cef825401a9   e37b109010d1c5664b8f651733b35b538eb9cf01   3.5.0             2m12s
+--- pool conditions
+PinnedImageSetsDegraded=False  
+NodeDegraded=False  
+Updated=True  All nodes are updated with MachineConfig rendered-runc-test-6640ec60add07bb5162e8cef825401a9
+Updating=False  
+RenderDegraded=True  Failed to render configuration for pool runc-test: MachineConfigPool runc-test targets a RHEL 10 OS image where runc is not available. To unblock, migrate to crun by removing any ContainerRuntimeConfig that sets defaultRuntime to runc, and removing any MachineConfig that sets default_runtime = "runc" in CRI-O configuration under /etc/crio/crio.conf.d/
+Degraded=True  
+--- pools
+NAME        CONFIG                                                UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+master      rendered-master-ee8bbba1001acbb3299312545d3dda45      True      False      False      3              3                   3                     0                      33h
+runc-test   rendered-runc-test-6640ec60add07bb5162e8cef825401a9   True      False      True       1              1                   1                     0                      2m17s
+worker      rendered-worker-6640ec60add07bb5162e8cef825401a9      True      False      False      1              1                   1                     0                      33h
+--- machine-config CO
+Progressing=False : Cluster version is 5.0.0
+Degraded=False : 
+Available=True AsExpected: Cluster has deployed [{operator 5.0.0} {operator-image quay.io/openshift-release-dev/ocp-v5.0-art-dev@sha256:bfe34098914bedb8e3f2cf54c47cfe41666d0f358dd302eab104df86ce3c050d}]
+Upgradeable=False DegradedPool: One or more machine config pools are degraded, please see `oc get mcp` for further details and resolve before upgrading
+EvaluationConditionsDetected=False AsExpected: 
+--- node
+ rendered-runc-test-6640ec60add07bb5162e8cef825401a9 rendered-runc-test-6640ec60add07bb5162e8cef825401a9 Done
+boot: 8eaab367-351f-45a7-9729-d3b6f0a56ba3

@@ -1,0 +1,20 @@
+2026-11-06T14:50:10Z
+node/ip-10-0-55-41.us-east-2.compute.internal unlabeled
+NAME        CONFIG                                                UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+master      rendered-master-ee8bbba1001acbb3299312545d3dda45      True      False      False      3              3                   3                     0                      33h
+runc-test   rendered-runc-test-6640ec60add07bb5162e8cef825401a9   True      False      False      0              0                   0                     0                      22m
+worker      rendered-worker-6640ec60add07bb5162e8cef825401a9      False     True       False      2              1                   1                     0                      33h
+machineconfigpool.machineconfiguration.openshift.io "runc-test" deleted
+0
+No resources found
+boot: 4c632be2-6e17-4bbf-8fdf-44192c803e7b (after step 5: 4c632be2-...)
+COs: 32 avail 32 degraded 0
+NAME     CONFIG                                             UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+master   rendered-master-ee8bbba1001acbb3299312545d3dda45   True      False      False      3              3                   3                     0                      33h
+worker   rendered-worker-6640ec60add07bb5162e8cef825401a9   True      False      False      2              2                   2                     0                      33h
+ip-10-0-48-66.us-east-2.compute.internal Ready
+ip-10-0-49-234.us-east-2.compute.internal Ready
+ip-10-0-55-41.us-east-2.compute.internal Ready
+ip-10-0-59-108.us-east-2.compute.internal Ready
+ip-10-0-61-142.us-east-2.compute.internal Ready
+pods not running:

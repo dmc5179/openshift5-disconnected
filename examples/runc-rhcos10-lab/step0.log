@@ -1,0 +1,10 @@
+2026-11-06T14:28:01Z
+machineconfigpool.machineconfiguration.openshift.io/runc-test created
+node/ip-10-0-55-41.us-east-2.compute.internal labeled
+boot-before: 8eaab367-351f-45a7-9729-d3b6f0a56ba3 2026-11-05 05:02:06
+NAME        CONFIG                                                UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+master      rendered-master-ee8bbba1001acbb3299312545d3dda45      True      False      False      3              3                   3                     0                      33h
+runc-test   rendered-runc-test-6640ec60add07bb5162e8cef825401a9   True      False      False      1              1                   1                     0                      32s
+worker      rendered-worker-6640ec60add07bb5162e8cef825401a9      True      False      False      1              1                   1                     0                      33h
+rendered-runc-test-6640ec60add07bb5162e8cef825401a9  Done
+boot-after: 8eaab367-351f-45a7-9729-d3b6f0a56ba3 2026-11-05 05:02:06

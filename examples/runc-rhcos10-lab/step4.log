@@ -1,0 +1,8 @@
+2026-11-06T14:44:16Z
+machineconfigpool.machineconfiguration.openshift.io/runc-test patched
+NAME        CONFIG                                                UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+runc-test   rendered-runc-test-fdffd893dff5a828afc44a49f5307692   True      False      True       1              1                   1                     0                      17m
+RenderDegraded=True Failed to render configuration for pool runc-test: MachineConfigPool runc-test targets a RHEL 10 OS image where runc is not available. To unblock, migrate to crun by removing any ContainerRuntimeConfig that sets defaultRuntime to runc, and removing any MachineConfig that sets default_runtime = "runc" in CRI-O configuration under /etc/crio/crio.conf.d/
+Upgradeable=False DegradedPool
+node: Done boot: 8a2e13bd-e6e2-40cb-8221-09b498513ddd CoreOS 9.8.20261026
+ALERT RuncDeprecated pending 2026-11-06T14:36:35.868795757Z

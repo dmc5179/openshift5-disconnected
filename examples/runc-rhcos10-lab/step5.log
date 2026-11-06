@@ -1,0 +1,20 @@
+2026-11-06T14:46:01Z
+machineconfig.machineconfiguration.openshift.io "00-override-runc-test-generated-crio-default-container-runtime" deleted
+14:46:01 RenderDegraded/Updated/Updating=True/True/False
+14:46:21 node cordoned/draining
+14:46:21 RenderDegraded/Updated/Updating=False/False/True
+14:46:52 RenderDegraded/Updated/Updating=False/False/True
+14:48:54 RenderDegraded/Updated/Updating=False/False/True
+2026-11-06T14:49:35Z
+NAME        CONFIG                                                UPDATED   UPDATING   DEGRADED   MACHINECOUNT   READYMACHINECOUNT   UPDATEDMACHINECOUNT   DEGRADEDMACHINECOUNT   AGE
+runc-test   rendered-runc-test-6640ec60add07bb5162e8cef825401a9   True      False      False      1              1                   1                     0                      21m
+PRETTY_NAME="Red Hat Enterprise Linux CoreOS 10.2.20261027-0 (Coughlan)"
+4c632be2-6e17-4bbf-8fdf-44192c803e7b
+runc absent
+    default_runtime = "crun"
+00-default
+Progressing=False 
+Degraded=False 
+Available=True AsExpected
+Upgradeable=True AsExpected
+EvaluationConditionsDetected=False AsExpected
