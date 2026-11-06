@@ -1,0 +1,343 @@
+=== STEP kubectl-version rc=126 denials=1
+    cmd: /usr/local/bin/kubectl version --client
+    out: bash: line 1: /usr/local/bin/kubectl: Operation not permitted
+    deny:       1 11/05/26 23:56:22 [ DEBUG ]: rule=13 dec=deny_audit perm=execute auid=1000 pid=5646 exe=/usr/bin/bash : path=/usr/local/bin/kubectl ftype=application/x-executable trust=0
+=== STEP oc-from-home rc=126 denials=1
+    cmd: ~/dl/x/oc version --client
+    out: bash: line 1: /home/ec2-user/dl/x/oc: Operation not permitted
+    deny:       1 11/05/26 23:56:23 [ DEBUG ]: rule=13 dec=deny_audit perm=execute auid=1000 pid=5672 exe=/usr/bin/bash : path=/home/ec2-user/dl/x/oc ftype=application/x-executable trust=0
+=== STEP openshift-install-version rc=126 denials=1
+    cmd: /usr/local/bin/openshift-install-fips version
+    out: bash: line 1: /usr/local/bin/openshift-install-fips: Operation not permitted
+    deny:       1 11/05/26 23:56:24 [ DEBUG ]: rule=13 dec=deny_audit perm=execute auid=1000 pid=5698 exe=/usr/bin/bash : path=/usr/local/bin/openshift-install-fips ftype=application/x-executable trust=0
+=== STEP ccoctl-help rc=0 denials=1
+    cmd: /usr/local/bin/ccoctl --help | head -3
+    out: bash: line 1: /usr/local/bin/ccoctl: Operation not permitted
+    deny:       1 11/05/26 23:56:25 [ DEBUG ]: rule=13 dec=deny_audit perm=execute auid=1000 pid=5725 exe=/usr/bin/bash : path=/usr/local/bin/ccoctl ftype=application/x-executable trust=0
+=== STEP oc-mirror-cdn-version rc=126 denials=1
+    cmd: /usr/local/bin/oc-mirror version --v2
+    out: bash: line 1: /usr/local/bin/oc-mirror: Operation not permitted
+    deny:       1 11/05/26 23:56:26 [ DEBUG ]: rule=13 dec=deny_audit perm=execute auid=1000 pid=5752 exe=/usr/bin/bash : path=/usr/local/bin/oc-mirror ftype=application/x-executable trust=0
+=== STEP aws-unzip rc=0 denials=1
+    cmd: cd ~/dl && rm -rf aws && unzip -q awscliv2.zip && sudo ./aws/install --update
+    out: [PYI-5786:ERROR] LOADER: failed to restart process: Operation not permitted
+    out: You can now run: /usr/local/bin/aws --version
+    out: Tip: run 'aws configure agent-toolkit' to set up AWS skills and the AWS MCP server for your AI coding agent(s).
+    deny:       1 11/05/26 23:56:29 [ DEBUG ]: rule=13 dec=deny_audit perm=execute auid=1000 pid=5786 exe=/home/ec2-user/dl/aws/dist/aws : path=/home/ec2-user/dl/aws/dist/aws ftype=application/x-executable trust=0
+=== STEP aws-version rc=126 denials=1
+    cmd: /usr/local/bin/aws --version
+    out: bash: line 1: /usr/local/bin/aws: Operation not permitted
+    deny:       1 11/05/26 23:56:38 [ DEBUG ]: rule=13 dec=deny_audit perm=execute auid=1000 pid=5824 exe=/usr/bin/bash : path=/usr/local/aws-cli/v2/dist/aws ftype=application/x-executable trust=0
+=== STEP podman-root-run rc=126 denials=4
+    cmd: sudo podman run --rm registry.access.redhat.com/ubi9/ubi-minimal:latest sh -c "echo hello from \$(cat /etc/redhat-release)"
+    out: Copying config sha256:f1ab2326c7873451c046c5740eafac56ab1906d6d81c1755a87b2c12ba9b2a80
+    out: Writing manifest to image destination
+    out: Storing signatures
+    out: /usr/bin/crun: error while loading shared libraries: libsystemd.so.0: cannot open shared object file: Operation not permitted
+    out: time="2026-11-05T23:56:58Z" level=error msg="Removing container fa73881d5d49761f38345b9a531c054b711013f02d954fec75defe9261600773 from runtime after creation failed"
+    out: Error: crun: /usr/bin/crun: error while loading shared libraries: libsystemd.so.0: cannot open shared object file: Operation not permitted: OCI permission denied
+    deny:       1 11/05/26 23:56:58 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6024 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/05/26 23:56:58 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6024 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+    deny:       1 11/05/26 23:56:58 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6022 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/05/26 23:56:58 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6022 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+=== STEP podman-rootless-run rc=0 denials=0
+    cmd: podman run --rm registry.access.redhat.com/ubi9/ubi-minimal:latest sh -c "echo hello rootless"
+    out: Checking if image destination supports signatures
+    out: Copying blob sha256:32b344ffa7c9dd8da7d1cfc046e3d302ca99a3db1387bb8137f797a9a3a080c7
+    out: Copying config sha256:f1ab2326c7873451c046c5740eafac56ab1906d6d81c1755a87b2c12ba9b2a80
+    out: Writing manifest to image destination
+    out: Storing signatures
+    out: hello rootless
+=== STEP podman-root-ubi10 rc=126 denials=4
+    cmd: sudo podman run --rm registry.access.redhat.com/ubi10/ubi-minimal:latest microdnf --version
+    out: Copying config sha256:84799c2eee97143c6ffa50b785a3e09977bd176bc7909501baabdc388859a527
+    out: Writing manifest to image destination
+    out: Storing signatures
+    out: /usr/bin/crun: error while loading shared libraries: libsystemd.so.0: cannot open shared object file: Operation not permitted
+    out: time="2026-11-05T23:57:05Z" level=error msg="Removing container 9e89f1fcd15fb396bef28efa3359d41e6c4ddef525f82300fe2da38b6dc7a1f7 from runtime after creation failed"
+    out: Error: crun: /usr/bin/crun: error while loading shared libraries: libsystemd.so.0: cannot open shared object file: Operation not permitted: OCI permission denied
+    deny:       1 11/05/26 23:57:05 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6260 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/05/26 23:57:05 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6260 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+    deny:       1 11/05/26 23:57:05 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6259 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/05/26 23:57:05 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=6259 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+=== STEP skopeo-inspect rc=0 denials=0
+    cmd: skopeo inspect --no-tags docker://registry.access.redhat.com/ubi9/ubi-minimal:latest | jq -r .Digest
+    out: sha256:4b79c93106c14ad1c234907f83441ff0e4f8d24e78426a36e159098e9f7e6fa5
+=== STEP skopeo-copy rc=0 denials=0
+    cmd: rm -rf /tmp/sk && skopeo copy -q docker://registry.access.redhat.com/ubi9/ubi-minimal:latest dir:/tmp/sk && ls /tmp/sk | wc -l
+    out: 12
+=== STEP crun-B rc=0 denials=0
+    cmd: sudo podman run --rm registry.access.redhat.com/ubi9/ubi-minimal:latest sh -c "cat /etc/redhat-release; ls /usr/bin | wc -l"
+    out: Red Hat Enterprise Linux release 9.8 (Plow)
+    out: 195
+=== STEP trust-tools rc=0 denials=0
+    cmd: sudo MIRROR_REGISTRY_DIR=/opt/mr bash ~/fapolicyd-trust-tools.sh; sudo cat /etc/fapolicyd/trust.d/90-ocp-disconnected | grep -v aws-cli; sudo grep -c aws-cli /etc/fapolicyd/trust.d/90-ocp-disconnected
+    out: /usr/local/bin/ccoctl 145939800 3054825586e04ae69aed8c60c410801d58726f78f96e3851245d600db1245955
+    out: /usr/local/bin/kubectl 139296496 5a9055cae0621e9c3d5b886ac82d4e6cdf027cb9da169101eaa05cc7da30d9dd
+    out: /usr/local/bin/oc 139296496 5a9055cae0621e9c3d5b886ac82d4e6cdf027cb9da169101eaa05cc7da30d9dd
+    out: /usr/local/bin/oc-mirror 247325135 b9a0702a25ad86fa2d4b0d2dc1a5c6dfb68b7cd4d7e9d287b8663a828b0656c3
+    out: /usr/local/bin/openshift-install-fips 844234512 9b5026f224cd169143e8a751e53b7872d008fcbb7bc1aaff15bf1da9bd562b2b
+    out: 7576
+=== STEP trust-check rc=0 denials=0
+    cmd: sudo MIRROR_REGISTRY_DIR=/opt/mr bash ~/fapolicyd-trust-tools.sh --check
+    out: All tool files are trusted in /etc/fapolicyd/trust.d/90-ocp-disconnected.
+=== STEP oc-version rc=0 denials=0
+    cmd: /usr/local/bin/oc version --client
+    out: Client Version: 5.0.0
+    out: Kustomize Version: v5.8.1
+=== STEP kubectl-version rc=0 denials=0
+    cmd: /usr/local/bin/kubectl version --client
+    out: Client Version: v1.36.2
+    out: Kustomize Version: v5.8.1
+=== STEP openshift-install-version rc=0 denials=0
+    cmd: /usr/local/bin/openshift-install version
+    out: /usr/local/bin/openshift-install 5.0.0
+    out: built from commit f49486a42a4058fb486d6444e6cc13bc56e2eb59
+    out: release image quay.io/openshift-release-dev/ocp-release@sha256:5d7ed8b3e98bc3a10c50f36f07262a962d59ad2d3ea5fb4935ff10c408c02e55
+    out: release architecture amd64
+=== STEP ccoctl-help rc=0 denials=0
+    cmd: /usr/local/bin/ccoctl --help 2>&1| head -3
+    out: OpenShift credentials provisioning tool
+    out: 
+    out: Usage:
+=== STEP oc-mirror-cdn-version rc=0 denials=0
+    cmd: /usr/local/bin/oc-mirror version --v2
+    out: 2026/11/06 00:03:56  [INFO]   : 👋 Hello, welcome to oc-mirror
+    out: 2026/11/06 00:03:56  [INFO]   : ⚙️  environment version: 2.0.0-202610201601.p2.gc4d52fa.assembly.stream.el9-c4d52fa
+    out: WARNING: This version information is deprecated and will be replaced with the output from --short. Use --output=yaml|json to get the full version.
+    out: Client Version: version.Info{Major:"", Minor:"", GitVersion:"2.0.0-202610201601.p2.gc4d52fa.assembly.stream.el9-c4d52fa", GitCommit:"c4d52faef556ec6778b200005df679bf981aec4e", GitTreeState:"clean", BuildDate:"2026-10-20T16:17:36Z", GoVersion:"go1.26.5 (Red Hat 1.26.5-1.el9_8)", Compiler:"gc", Platform:"linux/amd64", SupportedOCPVersions:[]string{"4.12", "4.14", "4.16", "4.18", "4.20", "4.21", "4.22", "4.23", "5.0"}}
+=== STEP aws-version rc=0 denials=0
+    cmd: /usr/local/bin/aws --version
+    out: aws-cli/2.39.5 Python/3.14.8 Linux/6.12.0-211.74.1.el10_2.x86_64 exe/x86_64.rhel.10
+=== STEP aws-sts rc=0 denials=0
+    cmd: AWS_EC2_METADATA_DISABLED=false /usr/local/bin/aws sts get-caller-identity --region us-east-2 2>&1 | head -3
+    out: 
+    out: aws: [ERROR]: An error occurred (NoCredentials): Unable to locate credentials. You can configure credentials by running "aws login".
+total 3243964
+drwxr-xr-x. 2 root root        106 Nov  6 00:04 .
+drwxr-xr-x. 3 root root         16 Nov  6 00:04 ..
+-rw-r--r--. 1 root root  386017280 Aug 31 15:53 execution-environment.tar
+-rw-r--r--. 1 root root 2820915200 Aug 31 15:53 image-archive.tar
+-rwxr-xr-x. 1 root root   11833808 Aug 31 15:51 mirror-registry
+-rw-r--r--. 1 root root  103045120 Aug 31 15:53 sqlite3.tar
+=== STEP mr-version-untrusted rc=0 denials=0
+    cmd: cd /opt/mr && sudo ./mirror-registry --version
+    out:  \ \/ \ \/ /   \_  ___/  \____/ /_/    \_\ |_|
+    out:   \__/ \__/      \ \__
+    out:                   \___\ by Red Hat
+    out:  Build, Store, and Distribute your Containers
+    out: 	
+    out: mirror-registry version 2.0.12
+=== STEP trust-tools rc=0 denials=0
+    cmd: sudo MIRROR_REGISTRY_DIR=/opt/mr bash ~/fapolicyd-trust-tools.sh; sudo grep mirror-registry /etc/fapolicyd/trust.d/90-ocp-disconnected
+    out: Fapolicyd was notified
+    out: 7587 entries in /etc/fapolicyd/trust.d/90-ocp-disconnected
+    out: /opt/mr/mirror-registry 11833808 501d3efa15fd4c1af7e4f06ac3aeb45221a36d8c8d2d1ef0fba483ffe8ce490e
+=== STEP mr-version rc=0 denials=0
+    cmd: cd /opt/mr && sudo ./mirror-registry --version
+    out:  \ \/ \ \/ /   \_  ___/  \____/ /_/    \_\ |_|
+    out:   \__/ \__/      \ \__
+    out:                   \___\ by Red Hat
+    out:  Build, Store, and Distribute your Containers
+    out: 	
+    out: mirror-registry version 2.0.12
+=== STEP mirror-registry-install rc=1 denials=0
+    cmd: cd /opt/mr && sudo ./mirror-registry install --quayHostname $(hostname -f) --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite > /tmp/mr-install.log 2>&1; rc=$?; sed -E "s/credentials \(init, [^)]*\)/credentials (init, <redacted>)/" /tmp/mr-install.log | tail -14; exit $rc
+    out: 
+    out: TASK [mirror_appliance : Install Quay Service] *********************************
+    out: included: /runner/project/roles/mirror_appliance/tasks/install-quay-service.yaml for root@ip-10-0-10-77.us-east-2.compute.internal
+    out: 
+    out: TASK [mirror_appliance : Create necessary directory for Quay local storage] ****
+    out: changed: [root@ip-10-0-10-77.us-east-2.compute.internal]
+    out: 
+    out: TASK [mirror_appliance : Set permissions on local storage directory] ***********
+    out: fatal: [root@ip-10-0-10-77.us-east-2.compute.internal]: FAILED! => {"changed": false, "msg": "Failed to find required executable \"setfacl\" in paths: /root/.local/bin:/root/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin"}
+    out: 
+    out: PLAY RECAP *********************************************************************
+    out: root@ip-10-0-10-77.us-east-2.compute.internal : ok=26   changed=11   unreachable=0    failed=1    skipped=13   rescued=0    ignored=0   
+    out: 
+    out: time="2026-11-06 00:06:12" level=error msg="An error occurred: exit status 2"
+=== STEP quay-health rc=7 denials=0
+    cmd: curl -sk -o /dev/null -w %{http_code} https://$(hostname -f):8443/health/instance
+    out: 000
+=== STEP quay-units rc=0 denials=0
+    cmd: systemctl is-active quay-pod quay-redis quay-app; sudo podman ps --format "{{.Names}} {{.Status}}"
+    out: active
+    out: active
+    out: inactive
+    out: bd2635426d9f-infra Up 3 seconds
+    out: quay-redis Up 3 seconds
+acl-2.4.0-1.el10_2.x86_64
+=== STEP mr-uninstall-1 rc=0 denials=0
+    cmd: cd /opt/mr && sudo ./mirror-registry uninstall --autoApprove --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite >/tmp/mr-uninstall.log 2>&1; echo rc=$?; sudo mkdir -p /opt/quay-root/data /opt/quay-root/sqlite
+    out: rc=1
+=== STEP mr-install-NO-crun-rule rc=1 denials=4
+    cmd: cd /opt/mr && sudo ./mirror-registry install --quayHostname $(hostname -f) --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite > /tmp/mr-install.log 2>&1; rc=$?; sed -E "s/credentials \(init, [^)]*\)/credentials (init, <redacted>)/" /tmp/mr-install.log | grep -E "fatal|FAILED|level=|PLAY RECAP|failed=" | tail -6; exit $rc
+    out: time="2026-11-06 00:09:16" level=info msg="Attempting to set SELinux rules on image archive"
+    out: time="2026-11-06 00:09:16" level=info msg="Running install playbook. This may take some time. To see playbook output run the installer with -v (verbose) flag."
+    out: time="2026-11-06 00:09:16" level=info msg="Detected an installation to localhost"
+    out: time="2026-11-06T00:09:16Z" level=warning msg="The input device is not a TTY. The --tty and --interactive flags might not work properly"
+    out: time="2026-11-06T00:09:16Z" level=error msg="Removing container 547fbb8e6e2925aef0a18f246d9d19fe4eaadd4b0451bac6ffec8f167168719a from runtime after creation failed"
+    out: time="2026-11-06 00:09:16" level=error msg="An error occurred: exit status 126"
+    deny:       1 11/06/26 00:09:16 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57401 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/06/26 00:09:16 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57401 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+    deny:       1 11/06/26 00:09:16 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57400 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/06/26 00:09:16 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57400 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+=== STEP mr-uninstall-2 rc=0 denials=4
+    cmd: cd /opt/mr && sudo ./mirror-registry uninstall --autoApprove --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite >/tmp/mr-uninstall.log 2>&1; echo rc=$?; sudo mkdir -p /opt/quay-root/data /opt/quay-root/sqlite
+    out: rc=1
+    deny:       1 11/06/26 00:09:19 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57498 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/06/26 00:09:19 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57498 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+    deny:       1 11/06/26 00:09:19 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57496 exe=/ : path=/usr/lib64/libsystemd.so.0.40.0 ftype=application/x-sharedlib trust=1
+    deny:       1 11/06/26 00:09:19 [ DEBUG ]: rule=5 dec=deny_audit perm=open auid=1000 pid=57496 exe=/ : path=/etc/ld.so.cache ftype=application/octet-stream trust=0
+=== STEP mr-install-with-crun-rule rc=1 denials=0
+    cmd: cd /opt/mr && sudo ./mirror-registry install --quayHostname $(hostname -f) --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite > /tmp/mr-install.log 2>&1; rc=$?; sed -E "s/credentials \(init, [^)]*\)/credentials (init, <redacted>)/" /tmp/mr-install.log | grep -E "fatal|FAILED|level=|PLAY RECAP|failed=" | tail -6; exit $rc
+    out: fatal: [root@ip-10-0-10-77.us-east-2.compute.internal]: FAILED! => {"attempts": 10, "changed": false, "elapsed": 0, "msg": "Status code was -1 and not [200]: Request failed: <urlopen error [Errno 111] Connection refused>", "redirected": false, "status": -1, "url": "https://ip-10-0-10-77.us-east-2.compute.internal:8443/health/instance"}
+    out: fatal: [root@ip-10-0-10-77.us-east-2.compute.internal]: FAILED! => {"changed": true, "cmd": ["systemctl", "--system", "status", "quay-app.service"], "delta": "0:00:00.012841", "end": "2026-11-06 00:15:50.067389", "msg": "non-zero return code", "rc": 3, "start": "2026-11-06 00:15:50.054548", "stderr": "", "stderr_lines": [], "stdout": "● quay-app.service - Quay Container\n     Loaded: loaded (/etc/systemd/system/quay-app.service; enabled; preset: disabled)\n     Active: activating (auto-restart) (Result: exit-code) since Fri 2026-11-06 00:15:24 UTC; 25s ago\n Invocation: 09ed6d3a3afd4645aa247ea7944f2203\n    Process: 66824 ExecStartPre=/bin/rm -f /run/quay-app.service-pid /run/quay-app.service-cid (code=exited, status=0/SUCCESS)\n    Process: 66839 ExecStart=/usr/bin/podman run --name quay-app -v /opt/quay-root/quay-config:/quay-registry/conf/stack:Z -v /opt/quay-root/sqlite:/sqlite:Z,U -v /opt/quay-root/data:/datastorage:Z --image-volume=ignore --pod=quay-pod --conmon-pidfile /run/quay-app.service-pid --cidfile /run/quay-app.service-cid --cgroups=no-conmon --log-driver=journald --replace -e WORKER_COUNT_UNSUPPORTED_MINIMUM=1 -e WORKER_COUNT=1 -e PYTHONUSERBASE_SITE_PACKAGE=/opt/app-root/lib/python3.12/site-packages registry.redhat.io/quay/quay-rhel8:v3.12.21 registry (code=exited, status=1/FAILURE)\n    Process: 66883 ExecStopPost=/bin/sh -c if [ \"$EXIT_STATUS\" -eq 0  ]; then /usr/bin/podman rm --ignore -f --cidfile /run/quay-app.service-cid; fi (code=exited, status=0/SUCCESS)\n   Main PID: 66839 (code=exited, status=1/FAILURE)\n   Mem peak: 26.3M\n        CPU: 129ms", "stdout_lines": ["● quay-app.service - Quay Container", "     Loaded: loaded (/etc/systemd/system/quay-app.service; enabled; preset: disabled)", "     Active: activating (auto-restart) (Result: exit-code) since Fri 2026-11-06 00:15:24 UTC; 25s ago", " Invocation: 09ed6d3a3afd4645aa247ea7944f2203", "    Process: 66824 ExecStartPre=/bin/rm -f /run/quay-app.service-pid /run/quay-app.service-cid (code=exited, status=0/SUCCESS)", "    Process: 66839 ExecStart=/usr/bin/podman run --name quay-app -v /opt/quay-root/quay-config:/quay-registry/conf/stack:Z -v /opt/quay-root/sqlite:/sqlite:Z,U -v /opt/quay-root/data:/datastorage:Z --image-volume=ignore --pod=quay-pod --conmon-pidfile /run/quay-app.service-pid --cidfile /run/quay-app.service-cid --cgroups=no-conmon --log-driver=journald --replace -e WORKER_COUNT_UNSUPPORTED_MINIMUM=1 -e WORKER_COUNT=1 -e PYTHONUSERBASE_SITE_PACKAGE=/opt/app-root/lib/python3.12/site-packages registry.redhat.io/quay/quay-rhel8:v3.12.21 registry (code=exited, status=1/FAILURE)", "    Process: 66883 ExecStopPost=/bin/sh -c if [ \"$EXIT_STATUS\" -eq 0  ]; then /usr/bin/podman rm --ignore -f --cidfile /run/quay-app.service-cid; fi (code=exited, status=0/SUCCESS)", "   Main PID: 66839 (code=exited, status=1/FAILURE)", "   Mem peak: 26.3M", "        CPU: 129ms"]}
+    out: fatal: [root@ip-10-0-10-77.us-east-2.compute.internal]: FAILED! => {"changed": false, "msg": "Quay did not become alive, see systemctl status output: ['● quay-app.service - Quay Container', '     Loaded: loaded (/etc/systemd/system/quay-app.service; enabled; preset: disabled)', '     Active: activating (auto-restart) (Result: exit-code) since Fri 2026-11-06 00:15:24 UTC; 25s ago', ' Invocation: 09ed6d3a3afd4645aa247ea7944f2203', '    Process: 66824 ExecStartPre=/bin/rm -f /run/quay-app.service-pid /run/quay-app.service-cid (code=exited, status=0/SUCCESS)', '    Process: 66839 ExecStart=/usr/bin/podman run --name quay-app -v /opt/quay-root/quay-config:/quay-registry/conf/stack:Z -v /opt/quay-root/sqlite:/sqlite:Z,U -v /opt/quay-root/data:/datastorage:Z --image-volume=ignore --pod=quay-pod --conmon-pidfile /run/quay-app.service-pid --cidfile /run/quay-app.service-cid --cgroups=no-conmon --log-driver=journald --replace -e WORKER_COUNT_UNSUPPORTED_MINIMUM=1 -e WORKER_COUNT=1 -e PYTHONUSERBASE_SITE_PACKAGE=/opt/app-root/lib/python3.12/site-packages registry.redhat.io/quay/quay-rhel8:v3.12.21 registry (code=exited, status=1/FAILURE)', '    Process: 66883 ExecStopPost=/bin/sh -c if [ \"$EXIT_STATUS\" -eq 0  ]; then /usr/bin/podman rm --ignore -f --cidfile /run/quay-app.service-cid; fi (code=exited, status=0/SUCCESS)', '   Main PID: 66839 (code=exited, status=1/FAILURE)', '   Mem peak: 26.3M', '        CPU: 129ms']"}
+    out: PLAY RECAP *********************************************************************
+    out: root@ip-10-0-10-77.us-east-2.compute.internal : ok=53   changed=26   unreachable=0    failed=1    skipped=18   rescued=1    ignored=1   
+    out: time="2026-11-06 00:15:50" level=error msg="An error occurred: exit status 2"
+=== STEP quay-health rc=7 denials=0
+    cmd: curl -sk -o /dev/null -w %{http_code} https://$(hostname -f):8443/health/instance
+    out: 000
+allow perm=open uid=0 pattern=ld_so exe=/ : all
+=== STEP mr-install-clean-with-crun-rule rc=1 denials=0
+    cmd: cd /opt/mr && sudo ./mirror-registry install --quayHostname $(hostname -f) --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite > /tmp/mr-install.log 2>&1; rc=$?; sed -E "s/credentials \(init, [^)]*\)/credentials (init, <redacted>)/" /tmp/mr-install.log | grep -E "fatal|level=|failed=" | tail -4; exit $rc
+    out: fatal: [root@ip-10-0-10-77.us-east-2.compute.internal]: FAILED! => {"changed": true, "cmd": ["systemctl", "--system", "status", "quay-app.service"], "delta": "0:00:00.012492", "end": "2026-11-06 00:22:47.618797", "msg": "non-zero return code", "rc": 3, "start": "2026-11-06 00:22:47.606305", "stderr": "", "stderr_lines": [], "stdout": "● quay-app.service - Quay Container\n     Loaded: loaded (/etc/systemd/system/quay-app.service; enabled; preset: disabled)\n     Active: activating (auto-restart) (Result: exit-code) since Fri 2026-11-06 00:22:22 UTC; 25s ago\n Invocation: 221a13688758457f99e4fa50fef2d683\n    Process: 77355 ExecStartPre=/bin/rm -f /run/quay-app.service-pid /run/quay-app.service-cid (code=exited, status=0/SUCCESS)\n    Process: 77357 ExecStart=/usr/bin/podman run --name quay-app -v /opt/quay-root/quay-config:/quay-registry/conf/stack:Z -v /opt/quay-root/sqlite:/sqlite:Z,U -v /opt/quay-root/data:/datastorage:Z --image-volume=ignore --pod=quay-pod --conmon-pidfile /run/quay-app.service-pid --cidfile /run/quay-app.service-cid --cgroups=no-conmon --log-driver=journald --replace -e WORKER_COUNT_UNSUPPORTED_MINIMUM=1 -e WORKER_COUNT=1 -e PYTHONUSERBASE_SITE_PACKAGE=/opt/app-root/lib/python3.12/site-packages registry.redhat.io/quay/quay-rhel8:v3.12.21 registry (code=exited, status=1/FAILURE)\n    Process: 77415 ExecStopPost=/bin/sh -c if [ \"$EXIT_STATUS\" -eq 0  ]; then /usr/bin/podman rm --ignore -f --cidfile /run/quay-app.service-cid; fi (code=exited, status=0/SUCCESS)\n   Main PID: 77357 (code=exited, status=1/FAILURE)\n   Mem peak: 36M\n        CPU: 126ms", "stdout_lines": ["● quay-app.service - Quay Container", "     Loaded: loaded (/etc/systemd/system/quay-app.service; enabled; preset: disabled)", "     Active: activating (auto-restart) (Result: exit-code) since Fri 2026-11-06 00:22:22 UTC; 25s ago", " Invocation: 221a13688758457f99e4fa50fef2d683", "    Process: 77355 ExecStartPre=/bin/rm -f /run/quay-app.service-pid /run/quay-app.service-cid (code=exited, status=0/SUCCESS)", "    Process: 77357 ExecStart=/usr/bin/podman run --name quay-app -v /opt/quay-root/quay-config:/quay-registry/conf/stack:Z -v /opt/quay-root/sqlite:/sqlite:Z,U -v /opt/quay-root/data:/datastorage:Z --image-volume=ignore --pod=quay-pod --conmon-pidfile /run/quay-app.service-pid --cidfile /run/quay-app.service-cid --cgroups=no-conmon --log-driver=journald --replace -e WORKER_COUNT_UNSUPPORTED_MINIMUM=1 -e WORKER_COUNT=1 -e PYTHONUSERBASE_SITE_PACKAGE=/opt/app-root/lib/python3.12/site-packages registry.redhat.io/quay/quay-rhel8:v3.12.21 registry (code=exited, status=1/FAILURE)", "    Process: 77415 ExecStopPost=/bin/sh -c if [ \"$EXIT_STATUS\" -eq 0  ]; then /usr/bin/podman rm --ignore -f --cidfile /run/quay-app.service-cid; fi (code=exited, status=0/SUCCESS)", "   Main PID: 77357 (code=exited, status=1/FAILURE)", "   Mem peak: 36M", "        CPU: 126ms"]}
+    out: fatal: [root@ip-10-0-10-77.us-east-2.compute.internal]: FAILED! => {"changed": false, "msg": "Quay did not become alive, see systemctl status output: ['● quay-app.service - Quay Container', '     Loaded: loaded (/etc/systemd/system/quay-app.service; enabled; preset: disabled)', '     Active: activating (auto-restart) (Result: exit-code) since Fri 2026-11-06 00:22:22 UTC; 25s ago', ' Invocation: 221a13688758457f99e4fa50fef2d683', '    Process: 77355 ExecStartPre=/bin/rm -f /run/quay-app.service-pid /run/quay-app.service-cid (code=exited, status=0/SUCCESS)', '    Process: 77357 ExecStart=/usr/bin/podman run --name quay-app -v /opt/quay-root/quay-config:/quay-registry/conf/stack:Z -v /opt/quay-root/sqlite:/sqlite:Z,U -v /opt/quay-root/data:/datastorage:Z --image-volume=ignore --pod=quay-pod --conmon-pidfile /run/quay-app.service-pid --cidfile /run/quay-app.service-cid --cgroups=no-conmon --log-driver=journald --replace -e WORKER_COUNT_UNSUPPORTED_MINIMUM=1 -e WORKER_COUNT=1 -e PYTHONUSERBASE_SITE_PACKAGE=/opt/app-root/lib/python3.12/site-packages registry.redhat.io/quay/quay-rhel8:v3.12.21 registry (code=exited, status=1/FAILURE)', '    Process: 77415 ExecStopPost=/bin/sh -c if [ \"$EXIT_STATUS\" -eq 0  ]; then /usr/bin/podman rm --ignore -f --cidfile /run/quay-app.service-cid; fi (code=exited, status=0/SUCCESS)', '   Main PID: 77357 (code=exited, status=1/FAILURE)', '   Mem peak: 36M', '        CPU: 126ms']"}
+    out: root@ip-10-0-10-77.us-east-2.compute.internal : ok=53   changed=29   unreachable=0    failed=1    skipped=18   rescued=1    ignored=1   
+    out: time="2026-11-06 00:22:48" level=error msg="An error occurred: exit status 2"
+=== STEP quay-health rc=7 denials=0
+    cmd: curl -sk -o /dev/null -w %{http_code} https://$(hostname -f):8443/health/instance
+    out: 000
+allow perm=open uid=0 pattern=ld_so exe=/ : all
+=== STEP mr-install-clean-with-crun-rule rc=0 denials=0
+    cmd: cd /opt/mr && sudo ./mirror-registry install --quayHostname $(hostname -f) --quayRoot /opt/quay-root --quayStorage /opt/quay-root/data --sqliteStorage /opt/quay-root/sqlite > /tmp/mr-install.log 2>&1; rc=$?; sed -E "s/credentials \(init, [^)]*\)/credentials (init, <redacted>)/" /tmp/mr-install.log | grep -E "fatal|level=|failed=" | tail -4; exit $rc
+    out: time="2026-11-06T00:24:53Z" level=warning msg="The input device is not a TTY. The --tty and --interactive flags might not work properly"
+    out: root@ip-10-0-10-77.us-east-2.compute.internal : ok=51   changed=29   unreachable=0    failed=0    skipped=20   rescued=0    ignored=0   
+    out: time="2026-11-06 00:25:46" level=info msg="Quay installed successfully, config data is stored in /opt/quay-root"
+    out: time="2026-11-06 00:25:46" level=info msg="Quay is available at https://ip-10-0-10-77.us-east-2.compute.internal:8443 with credentials (init, <redacted>)"
+=== STEP quay-health rc=0 denials=0
+    cmd: curl -sk -o /dev/null -w %{http_code} https://$(hostname -f):8443/health/instance
+    out: 200
+=== STEP extract-fips-oc-mirror rc=0 denials=0
+    cmd: rm -rf ~/dl/fips && mkdir -p ~/dl/fips && oc image extract registry.redhat.io/openshift5/oc-mirror-plugin-rhel9:v5.0 -a ~/pull-secret.json --filter-by-os=linux/amd64 --path /usr/bin/oc-mirror.rhel9:$HOME/dl/fips/ --confirm && ls -la ~/dl/fips
+    out: total 320496
+    out: drwxr-xr-x. 2 ec2-user ec2-user        29 Nov  6 00:26 .
+    out: drwxr-xr-x. 5 ec2-user ec2-user      4096 Nov  6 00:25 ..
+    out: -rw-r-----. 1 ec2-user ec2-user 328181000 Nov  3 06:31 oc-mirror.rhel9
+=== STEP replace-oc-mirror rc=0 denials=0
+    cmd: sudo install -m 755 ~/dl/fips/oc-mirror.rhel9 /usr/local/bin/oc-mirror && sudo restorecon /usr/local/bin/oc-mirror
+    out: 
+=== STEP oc-mirror-fips-before-retrust rc=0 denials=0
+    cmd: /usr/local/bin/oc-mirror version --v2 2>&1 | tail -1
+    out: Client Version: version.Info{Major:"", Minor:"", GitVersion:"5.0.0-202611030132.p2.g4b6e461.assembly.stream.el9-4b6e461", GitCommit:"4b6e461b89fdc2dca7bfc5fe348dbfffb34c47df", GitTreeState:"clean", BuildDate:"2026-11-03T06:28:02Z", GoVersion:"go1.26.10 (Red Hat 1.26.10-1.el9_8) X:strictfipsruntime", Compiler:"gc", Platform:"linux/amd64"}
+=== STEP trust-check-after-upgrade rc=0 denials=0
+    cmd: sudo MIRROR_REGISTRY_DIR=/opt/mr bash ~/fapolicyd-trust-tools.sh --check | grep -v aws-cli
+    out: STALE      /usr/local/bin/oc-mirror (content changed since it was trusted)
+=== STEP retrust rc=0 denials=0
+    cmd: sudo MIRROR_REGISTRY_DIR=/opt/mr bash ~/fapolicyd-trust-tools.sh
+    out: Fapolicyd was notified
+    out: 7587 entries in /etc/fapolicyd/trust.d/90-ocp-disconnected
+=== STEP oc-mirror-fips-version rc=0 denials=0
+    cmd: /usr/local/bin/oc-mirror version --v2 2>&1 | tail -1; go version -m /usr/local/bin/oc-mirror 2>/dev/null | grep -E "GOEXPERIMENT|CGO_ENABLED" ; true
+    out: Client Version: version.Info{Major:"", Minor:"", GitVersion:"5.0.0-202611030132.p2.g4b6e461.assembly.stream.el9-4b6e461", GitCommit:"4b6e461b89fdc2dca7bfc5fe348dbfffb34c47df", GitTreeState:"clean", BuildDate:"2026-11-03T06:28:02Z", GoVersion:"go1.26.10 (Red Hat 1.26.10-1.el9_8) X:strictfipsruntime", Compiler:"gc", Platform:"linux/amd64"}
+=== STEP oc-mirror-fips-libcrypto rc=0 denials=0
+    cmd: LD_DEBUG=libs /usr/local/bin/oc-mirror version --v2 2>&1 | grep -oE "/[^ ]*(libcrypto.so.3|fips.so)" | sort -u
+    out: 
+=== STEP credreqs rc=0 denials=0
+    cmd: rm -rf ~/cc && mkdir -p ~/cc && oc adm release extract --credentials-requests --cloud=aws --to=$HOME/cc/credreqs -a ~/pull-secret.json quay.io/openshift-release-dev/ocp-release:5.0.0-x86_64 && ls ~/cc/credreqs | wc -l
+    out: warning: if you intend to pass CredentialsRequests to ccoctl, you should use --included to filter out requests that your cluster is not expected to need.
+    out: Extracted release payload from digest sha256:5d7ed8b3e98bc3a10c50f36f07262a962d59ad2d3ea5fb4935ff10c408c02e55 created at 2026-10-29T16:05:03Z
+    out: 8
+=== STEP ccoctl-dry-run rc=0 denials=0
+    cmd: cd ~/cc && ccoctl aws create-all --name fapo-test --region us-east-2 --credentials-requests-dir credreqs --output-dir out --dry-run 2>&1 | tail -4; ls out | head
+    out: 03-keys.json
+    out: 04-iam-identity-provider.json
+    out: 05-0-fapo-test-openshift-cluster-api-capa-manager-bootstrap-credentials-role.json
+    out: 05-1-fapo-test-openshift-machine-api-aws-cloud-credentials-role.json
+    out: 05-2-fapo-test-openshift-cloud-credential-operator-cloud-credential-operator-iam-ro-creds-role.json
+    out: 05-3-fapo-test-openshift-image-registry-installer-cloud-credentials-role.json
+    out: 05-4-fapo-test-openshift-ingress-operator-cloud-credentials-role.json
+    out: 05-5-fapo-test-openshift-cloud-network-config-controller-cloud-credentials-role.json
+=== STEP create-manifests rc=1 denials=0
+    cmd: rm -rf ~/ic && mkdir ~/ic && cd ~/ic && ssh-keygen -q -t rsa -b 3072 -N "" -f ~/ic/key && cat > install-config.yaml <<IC
+apiVersion: v1
+baseDomain: example.com
+metadata: {name: fapo}
+fips: $FIPS
+compute: [{name: worker, replicas: 0}]
+controlPlane: {name: master, replicas: 1}
+networking: {machineNetwork: [{cidr: 10.0.0.0/16}]}
+platform: {none: {}}
+pullSecret: '{"auths":{"registry.example.com:8443":{"auth":"ZHVtbXk6ZHVtbXk="}}}'
+sshKey: "$(cat ~/ic/key.pub)"
+IC
+openshift-install create manifests --dir ~/ic 2>&1 | tail -4; ls ~/ic/manifests | wc -l; ls ~/ic/openshift | grep -i fips
+    out: level=warning msg=Making control-plane schedulable by setting MastersSchedulable to true for Scheduler cluster settings
+    out: level=info msg=Successfully populated MCS CA cert information: root-ca 2036-11-03T00:27:30Z 2026-11-06T00:27:30Z
+    out: level=info msg=Successfully populated MCS TLS cert information: root-ca 2036-11-03T00:27:30Z 2026-11-06T00:27:30Z
+    out: level=info msg=Manifests created in: /home/ec2-user/ic, /home/ec2-user/ic/manifests and /home/ec2-user/ic/openshift
+    out: 14
+=== STEP quay-login rc=0 denials=0
+    cmd: sudo cp /opt/quay-root/quay-rootCA/rootCA.pem /etc/pki/ca-trust/source/anchors/fapo-quay.pem && sudo update-ca-trust && cp ~/pull-secret.json ~/auth.json && chmod 600 ~/auth.json && pw=$(sudo sed -n "s/.*credentials (init, \([^)]*\)).*/\1/p" /tmp/mr-install.log | tail -1) && printf %s "$pw" | podman login --authfile ~/auth.json -u init --password-stdin $H:8443
+    out: Login Succeeded!
+=== STEP oc-mirror-m2m rc=0 denials=0
+    cmd: rm -rf ~/m2m && mkdir ~/m2m && cat > ~/m2m/isc.yaml <<ISC
+apiVersion: mirror.openshift.io/v2alpha1
+kind: ImageSetConfiguration
+mirror:
+  additionalImages:
+  - name: registry.redhat.io/ubi9/ubi-minimal:latest
+  - name: registry.redhat.io/ubi10/ubi-minimal:latest
+ISC
+cd ~/m2m && oc-mirror --v2 -c isc.yaml --workspace file://$HOME/m2m/ws --authfile ~/auth.json docker://$H:8443/fapotest 2>&1 | grep -vE "^\s*$" | tail -6; ls ws/working-dir/cluster-resources
+    out: 2026/11/06 00:27:55  [INFO]   : 📄 Generating ITMS file...
+    out: 2026/11/06 00:27:55  [INFO]   : /home/ec2-user/m2m/ws/working-dir/cluster-resources/itms-oc-mirror.yaml file created
+    out: 2026/11/06 00:27:55  [INFO]   : 📄 No catalogs mirrored. Skipping CatalogSource file generation.
+    out: 2026/11/06 00:27:55  [INFO]   : 📄 No catalogs mirrored. Skipping ClusterCatalog file generation.
+    out: 2026/11/06 00:27:55  [INFO]   : mirror time     : 18.97940513s
+    out: 2026/11/06 00:27:55  [INFO]   : 👋 Goodbye, thank you for using oc-mirror
+    out: itms-oc-mirror.yaml
+=== STEP podman-pull-mirror rc=0 denials=0
+    cmd: sudo podman pull -q --authfile ~/auth.json $H:8443/fapotest/ubi9/ubi-minimal:latest && sudo podman run --rm $H:8443/fapotest/ubi9/ubi-minimal:latest cat /etc/redhat-release
+    out: f1ab2326c7873451c046c5740eafac56ab1906d6d81c1755a87b2c12ba9b2a80
+    out: Red Hat Enterprise Linux release 9.8 (Plow)
+=== STEP skopeo-mirror rc=0 denials=0
+    cmd: skopeo inspect --authfile ~/auth.json docker://$H:8443/fapotest/ubi10/ubi-minimal:latest | jq -r .Name
+    out: ip-10-0-10-77.us-east-2.compute.internal:8443/fapotest/ubi10/ubi-minimal
+integrity = sha256
+=== STEP sha256-oc-mirror-fips-trusted rc=0 denials=0
+    cmd: /usr/local/bin/oc-mirror version --v2 2>&1 | tail -1 | cut -c1-120
+    out: Client Version: version.Info{Major:"", Minor:"", GitVersion:"5.0.0-202611030132.p2.g4b6e461.assembly.stream.el9-4b6e461"
+=== STEP sha256-oc-and-aws rc=0 denials=0
+    cmd: oc version --client | head -1; aws --version
+    out: Client Version: 5.0.0
+    out: aws-cli/2.39.5 Python/3.14.8 Linux/6.12.0-211.74.1.el10_2.x86_64 exe/x86_64.rhel.10
+=== STEP sha256-replace-with-cdn rc=0 denials=1
+    cmd: sudo install -m 755 ~/dl/x/oc-mirror /usr/local/bin/oc-mirror && sudo restorecon /usr/local/bin/oc-mirror && /usr/local/bin/oc-mirror version --v2 2>&1 | tail -1 | cut -c1-120
+    out: bash: line 1: /usr/local/bin/oc-mirror: Operation not permitted
+    deny:       1 11/06/26 00:28:24 [ DEBUG ]: rule=14 dec=deny_audit perm=execute auid=1000 pid=133946 exe=/usr/bin/bash : path=/usr/local/bin/oc-mirror ftype=application/x-executable trust=0
+=== STEP sha256-root-runs-stale rc=0 denials=0
+    cmd: sudo /usr/local/bin/oc-mirror version --v2 2>&1 | tail -1 | cut -c1-120
+    out: Client Version: version.Info{Major:"", Minor:"", GitVersion:"2.0.0-202610201601.p2.gc4d52fa.assembly.stream.el9-c4d52fa"
+=== STEP sha256-retrust rc=0 denials=0
+    cmd: sudo MIRROR_REGISTRY_DIR=/opt/mr bash ~/fapolicyd-trust-tools.sh
+    out: Fapolicyd was notified
+    out: 7587 entries in /etc/fapolicyd/trust.d/90-ocp-disconnected
+=== STEP sha256-cdn-after-retrust rc=0 denials=0
+    cmd: /usr/local/bin/oc-mirror version --v2 2>&1 | tail -1 | cut -c1-120
+    out: Client Version: version.Info{Major:"", Minor:"", GitVersion:"2.0.0-202610201601.p2.gc4d52fa.assembly.stream.el9-c4d52fa"
+=== STEP cdn-oc-mirror-m2m rc=0 denials=0
+    cmd: cd ~/m2m && rm -rf ws2 && oc-mirror --v2 -c isc.yaml --workspace file://$HOME/m2m/ws2 --authfile ~/auth.json docker://$H:8443/fapotest-cdn 2>&1 | grep -E "ERROR|mirror time|images mirrored|Success" | tail -4
+    out: 2026/11/06 00:28:52  [INFO]   : Success copying registry.redhat.io/ubi10/ubi-minimal:latest ➡️ ip-10-0-10-77.us-east-2.compute.internal:8443/fapotest-cdn/ubi10/
+    out: 2026/11/06 00:28:52  [INFO]   : Success copying registry.redhat.io/ubi9/ubi-minimal:latest ➡️ ip-10-0-10-77.us-east-2.compute.internal:8443/fapotest-cdn/ubi9/
+    out: 2026/11/06 00:28:52  [INFO]   :  ✓  2 / 2 additional images mirrored successfully
+    out: 2026/11/06 00:28:52  [INFO]   : mirror time     : 21.523621682s
+=== STEP sha256-mirror-registry-restart rc=0 denials=0
+    cmd: sudo systemctl restart quay-app && sleep 20 && curl -sk -o /dev/null -w %{http_code} https://$H:8443/health/instance
+    out: 502
+=== STEP sha256-podman-run rc=0 denials=0
+    cmd: sudo podman run --rm $H:8443/fapotest/ubi9/ubi-minimal:latest true && echo ok
+    out: ok

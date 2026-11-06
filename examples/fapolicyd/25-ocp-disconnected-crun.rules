@@ -1,0 +1,28 @@
+# /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+#
+# Rootful podman (crun) under fapolicyd: AGENTS.md B-5, examples/fapolicyd/RESULTS.md.
+#
+# crun re-executes itself from a sealed memfd copy before it starts a container
+# (protection against CVE-2019-5736). fapolicyd then sees the process with
+# exe=/ and, because the dynamic loader maps the libraries of a binary that is
+# not on disk, the default rule in 30-patterns.rules
+#     deny_audit perm=any pattern=ld_so : all
+# denies every library open. Every rootful `podman run` fails with
+#     crun: error while loading shared libraries: libsystemd.so.0: cannot open
+#     shared object file: Operation not permitted: OCI permission denied
+# which also breaks mirror-registry (quay-pod, quay-redis, quay-app are rootful
+# podman units) and its installer.
+#
+# This file must sort BEFORE 30-patterns.rules. Matching exe=/usr/bin/crun does
+# NOT work (tested): the subject is the memfd copy, reported as exe=/.
+# Rootless podman is not affected (tested, no denials).
+#
+# Scope: open (not execute) by root only, for processes with the ld_so pattern
+# and no resolvable executable. Red Hat documents the same workaround for runc
+# (RHEL 10 Security hardening, "Running fapolicyd on a system with containers"):
+#     allow perm=any pattern=ld_so exe=/usr/bin/runc : all
+#     allow perm=any uid=0 pattern=ld_so exe=/runc : trust=1
+# The ": trust=1" object form is not enough for crun (tested): /etc/ld.so.cache
+# and the container's oci-log file are untrusted objects.
+
+allow perm=open uid=0 pattern=ld_so exe=/ : all
