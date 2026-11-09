@@ -100,7 +100,7 @@ jq -e '.auths | length > 0' "$PULL_SECRET_FILE" >/dev/null \
     || { echo "Error: ${PULL_SECRET_FILE} is not a pull secret (no .auths)." >&2; exit 1; }
 
 case "${PULL_SECRET_SOURCE:-ssm}" in ssm|parameter) ;; *) echo "Error: PULL_SECRET_SOURCE must be ssm or parameter." >&2; exit 1 ;; esac
-case "${EGRESS_PROFILE:-broad}" in broad|regional) ;; *) echo "Error: EGRESS_PROFILE must be broad or regional." >&2; exit 1 ;; esac
+case "${EGRESS_PROFILE:-regional}" in broad|regional) ;; *) echo "Error: EGRESS_PROFILE must be broad or regional." >&2; exit 1 ;; esac
 case "${FAPOLICYD_MODE:-disable}" in disable|enforce-with-trust) ;; *) echo "Error: FAPOLICYD_MODE must be disable or enforce-with-trust." >&2; exit 1 ;; esac
 case "${S3_GATEWAY_ENDPOINT:-false}" in true|false) ;; *) echo "Error: S3_GATEWAY_ENDPOINT must be true or false." >&2; exit 1 ;; esac
 
@@ -164,7 +164,7 @@ jq -n \
     --arg ami "$BASTION_AMI_ID" --arg nami "$NODE_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" \
     --arg cb "$CLIENT_BUILD" --arg ocm "$OC_MIRROR_URL" \
     --arg src "${PULL_SECRET_SOURCE:-ssm}" --arg ssm "$PULL_SECRET_SSM_NAME" \
-    --arg egress "${EGRESS_PROFILE:-broad}" --arg s3ep "${S3_GATEWAY_ENDPOINT:-false}" --arg fapo "${FAPOLICYD_MODE:-disable}" \
+    --arg egress "${EGRESS_PROFILE:-regional}" --arg s3ep "${S3_GATEWAY_ENDPOINT:-false}" --arg fapo "${FAPOLICYD_MODE:-disable}" \
     --rawfile ps "$PULL_SECRET_FILE" '
     [ {ParameterKey:"VpcCidr",               ParameterValue:$cidr},
       {ParameterKey:"AvailabilityZoneCount", ParameterValue:$azs},
