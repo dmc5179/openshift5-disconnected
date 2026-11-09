@@ -63,13 +63,53 @@ Parameters:
       clients/ocp/<version>/ (that path returns 404); it ships asynchronously under pub/cgw/oc-mirror/.
     Type: String
 
+  FapolicydMode:
+    Type: String
+    Default: disable
+    AllowedValues: [enforce-with-trust, disable]
+    Description: >-
+      fapolicyd on all three nodes (default disable until openshift-install create cluster is
+      validated under fapolicyd, AGENTS.md B-5). enforce-with-trust installs and enforces it with a crun rule
+      (rootful podman, mirror-registry) and a SHA-256 trust file for the tools under /usr/local
+      (AGENTS.md B-5, examples/fapolicyd/). disable stops and masks it.
+
   PullSecretJson:
     Description: >-
-      OpenShift pull secret JSON. NoEcho hides it from the console and describe-stacks, but it is still
-      written into the bastion's user data, which anyone with ec2:DescribeInstanceAttribute can read (CF-9).
+      OpenShift pull secret JSON (legacy path). NoEcho hides it from the console and describe-stacks, but
+      it is still written into the bastion's user data, which anyone with ec2:DescribeInstanceAttribute
+      can read (CF-9). Leave it at "{}" and use PullSecretSsmParameter instead.
     Type: String
     NoEcho: true
     Default: "{}"
+
+  PullSecretSsmParameter:
+    Description: >-
+      Name of an SSM Parameter Store SecureString (for example /ocp5-disconnected/pull-secret) that holds
+      the pull secret. The bastion reads it at boot with its instance role, so the secret is not in the
+      user data or the stack parameters (CF-9). scripts/10-deploy-vpc.sh creates it. Blank = use
+      PullSecretJson.
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^/[A-Za-z0-9_./-]+$"
+
+  EgressProfile:
+    Description: >-
+      Squid allowlist for the private subnets (CF-17). broad = every *.<AWS URL suffix> host plus
+      .cloudfront.net, RHUI and RHDP (the original lab list). regional = only AWS endpoints in this
+      region plus the partition-global IAM, STS, Route 53 and S3 endpoints, and RHUI; other regions'
+      S3 buckets and CloudFront are blocked.
+    Type: String
+    Default: broad
+    AllowedValues: [broad, regional]
+
+  CreateS3GatewayEndpoint:
+    Description: >-
+      Add a free S3 gateway VPC endpoint to the private route tables (CF-17), as the AWS disconnected
+      install docs describe. S3 traffic from the private subnets then bypasses Squid (no SNI log
+      entries for S3).
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
 
   NATInstanceType:
     Type: String
@@ -164,6 +204,8 @@ Mappings:
 Conditions:
   HasBastionAmi: !Not [!Equals ["", !Ref BastionAmiId]]
   HasNodeAmi: !Not [!Equals ["", !Ref NodeAmiId]]
+  UseSsmPullSecret: !Not [!Equals ["", !Ref PullSecretSsmParameter]]
+  DoS3GatewayEndpoint: !Equals ["true", !Ref CreateS3GatewayEndpoint]
   DoAz3: !Equals [3, !Ref AvailabilityZoneCount]
   DoAz2: !Or [!Equals [2, !Ref AvailabilityZoneCount], Condition: DoAz3]
 
@@ -273,6 +315,20 @@ Resources:
     Properties:
       SubnetId: !Ref PublicSubnet3
       RouteTableId: !Ref PublicRouteTable
+
+  # CF-17: optional S3 gateway endpoint (free) on the private route tables. Bucket traffic from the
+  # private subnets then goes straight to S3 instead of through Squid.
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: DoS3GatewayEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      VpcEndpointType: Gateway
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds:
+      - !Ref PrivateRouteTable
+      - !If [DoAz2, !Ref PrivateRouteTable2, !Ref AWS::NoValue]
+      - !If [DoAz3, !Ref PrivateRouteTable3, !Ref AWS::NoValue]
 
 ####################################################################3
 # Private Subnets
@@ -424,7 +480,7 @@ Resources:
         - Effect: Allow
           Principal:
             Service:
-            - ec2.amazonaws.com
+            - !Sub "ec2.${AWS::URLSuffix}"
           Action:
           - sts:AssumeRole
       Path: /
@@ -516,11 +572,55 @@ Resources:
             # systemd but left the RHEL 9.5 SELinux policy, which then denies systemd's BPF device
             # filter after a reboot and breaks every container (CF-22).
             dnf update -y
-            # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
-            if rpm -q fapolicyd >/dev/null 2>&1; then
-              systemctl disable --now fapolicyd || true
-              systemctl mask fapolicyd || true
-            fi
+            # fapolicyd (AGENTS.md B-5, examples/fapolicyd/RESULTS.md). FapolicydMode:
+            #   enforce-with-trust  install fapolicyd if missing, enable it enforcing, add the crun rule
+            #                       (rootful podman / mirror-registry), integrity sha256, an audit rule so
+            #                       denials are logged, and trust the non-RPM tools under /usr/local by hash
+            #   disable             stop, disable and mask it (the behaviour before B-5)
+            type fail >/dev/null 2>&1 || fail() { echo "FATAL: $*"; exit 1; }
+            fapolicyd_prepare() {
+              case "${FapolicydMode}" in
+              disable)
+                if rpm -q fapolicyd >/dev/null 2>&1; then
+                  systemctl disable --now fapolicyd || true
+                  systemctl mask fapolicyd || true
+                fi ;;
+              enforce-with-trust)
+                rpm -q fapolicyd >/dev/null 2>&1 || dnf install -y fapolicyd || fail "install fapolicyd"
+                # crun re-executes itself from a memfd (exe=/); the default ld_so pattern rule then denies its
+                # library loads and every rootful podman run fails with "OCI permission denied". Must sort
+                # before 30-patterns.rules; exe=/usr/bin/crun does not match (tested).
+                printf '%s\n' '# AGENTS.md B-5: rootful podman (crun memfd re-exec) under fapolicyd' \
+                  'allow perm=open uid=0 pattern=ld_so exe=/ : all' > /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                chmod 644 /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                chgrp fapolicyd /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                sed -i 's/^integrity = .*/integrity = sha256/' /etc/fapolicyd/fapolicyd.conf
+                # FANOTIFY denial records need at least one audit rule (KCS 7052379).
+                echo '-w /etc/fapolicyd/ -p wa -k fapolicyd-config' > /etc/audit/rules.d/50-fapolicyd.rules
+                augenrules --load || true
+                restorecon -R /etc/fapolicyd
+                systemctl unmask fapolicyd 2>/dev/null || true
+                fagenrules --load || fail "fagenrules"
+                systemctl enable fapolicyd
+                systemctl restart fapolicyd || fail "start fapolicyd" ;;
+              *) fail "unknown FapolicydMode ${FapolicydMode}" ;;
+              esac
+            }
+            # Trust is by path, size and SHA-256 (enforced with integrity = sha256): call this again after
+            # installing or replacing anything under /usr/local, or pass extra paths.
+            fapolicyd_trust() {
+              [ "${FapolicydMode}" = enforce-with-trust ] || return 0
+              rm -f /etc/fapolicyd/trust.d/90-ocp-disconnected
+              for p in /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips \
+                       /usr/local/bin/oc-mirror /usr/local/bin/ccoctl /usr/local/aws-cli "$@"; do
+                [ -e "$p" ] || continue
+                # exit 9 = nothing new to add (duplicate path); not an error here
+                fapolicyd-cli --file add "$(readlink -f "$p")" --trust-file 90-ocp-disconnected >/dev/null || [ $? = 9 ] \
+                  || fail "fapolicyd trust $p"
+              done
+              fapolicyd-cli --update || fail "fapolicyd-cli --update"
+            }
+            fapolicyd_prepare
             # firewalld is not used here: the interception rules below are managed by iptables-services,
             # and firewalld.service conflicts with iptables.service (CF-7).
             yum install -y unzip vim wget
@@ -534,6 +634,7 @@ Resources:
             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
             unzip awscliv2.zip
             ./aws/install
+            fapolicyd_trust
 
             # Disable source / destination check. It cannot be disabled from the launch configuration
             region=${AWS::Region}
@@ -560,10 +661,24 @@ Resources:
             chmod 640 /etc/squid/ssl/*
             popd
 
-            echo '.amazonaws.com' > /etc/squid/whitelist.txt
-            echo '.cloudfront.net' >> /etc/squid/whitelist.txt
-            echo '.ce.redhat.com' >> /etc/squid/whitelist.txt
-            echo '.opentlc.com' >> /etc/squid/whitelist.txt
+            # Allowlist (CF-17, EgressProfile). ${AWS::URLSuffix} is the partition's DNS suffix
+            # (amazonaws.com; c2s.ic.gov / sc2s.sgov.gov in ISO / ISO-B, ISO-3).
+            if [ "${EgressProfile}" = regional ]; then
+              # Regional AWS endpoints (EC2, ELB, STS, S3 incl. bucket.s3.<region>..., CloudFormation for
+              # cfn-signal, tagging, service quotas, SSM, KMS), the partition-global endpoints the
+              # installer uses, the AWS CLI download, and RHUI for dnf. GovCloud's global IAM and
+              # Route 53 names are listed too (harmless elsewhere).
+              printf '%s\n' \
+                '.${AWS::Region}.${AWS::URLSuffix}' \
+                'iam.${AWS::URLSuffix}' 'route53.${AWS::URLSuffix}' 'sts.${AWS::URLSuffix}' \
+                's3.${AWS::URLSuffix}' 'awscli.amazonaws.com' \
+                'iam.us-gov.amazonaws.com' 'route53.us-gov.amazonaws.com' \
+                '.ce.redhat.com' > /etc/squid/whitelist.txt
+            else
+              printf '%s\n' '.${AWS::URLSuffix}' '.cloudfront.net' '.ce.redhat.com' '.opentlc.com' \
+                > /etc/squid/whitelist.txt
+            fi
+            sort -u -o /etc/squid/whitelist.txt /etc/squid/whitelist.txt
 
             cat > /etc/squid/squid.conf << 'EOF'
 
@@ -684,7 +799,7 @@ Resources:
         - Effect: "Allow"
           Principal:
             Service:
-            - "ec2.amazonaws.com"
+            - !Sub "ec2.${AWS::URLSuffix}"
           Action:
           - "sts:AssumeRole"
       Path: "/"
@@ -703,6 +818,14 @@ Resources:
           - Effect: "Allow"
             Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
             Resource: !Sub "${S3Bucket.Arn}/*"
+          # CF-9: read only the pull secret parameter (SecureString with the default aws/ssm key, whose
+          # key policy lets account principals decrypt through SSM).
+          - !If
+            - UseSsmPullSecret
+            - Effect: "Allow"
+              Action: "ssm:GetParameter"
+              Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PullSecretSsmParameter}"
+            - !Ref AWS::NoValue
 
   HelperInstanceProfile:
     Type: "AWS::IAM::InstanceProfile"
@@ -780,11 +903,55 @@ Resources:
 
             # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
             dnf update -y
-            # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
-            if rpm -q fapolicyd >/dev/null 2>&1; then
-              systemctl disable --now fapolicyd || true
-              systemctl mask fapolicyd || true
-            fi
+            # fapolicyd (AGENTS.md B-5, examples/fapolicyd/RESULTS.md). FapolicydMode:
+            #   enforce-with-trust  install fapolicyd if missing, enable it enforcing, add the crun rule
+            #                       (rootful podman / mirror-registry), integrity sha256, an audit rule so
+            #                       denials are logged, and trust the non-RPM tools under /usr/local by hash
+            #   disable             stop, disable and mask it (the behaviour before B-5)
+            type fail >/dev/null 2>&1 || fail() { echo "FATAL: $*"; exit 1; }
+            fapolicyd_prepare() {
+              case "${FapolicydMode}" in
+              disable)
+                if rpm -q fapolicyd >/dev/null 2>&1; then
+                  systemctl disable --now fapolicyd || true
+                  systemctl mask fapolicyd || true
+                fi ;;
+              enforce-with-trust)
+                rpm -q fapolicyd >/dev/null 2>&1 || dnf install -y fapolicyd || fail "install fapolicyd"
+                # crun re-executes itself from a memfd (exe=/); the default ld_so pattern rule then denies its
+                # library loads and every rootful podman run fails with "OCI permission denied". Must sort
+                # before 30-patterns.rules; exe=/usr/bin/crun does not match (tested).
+                printf '%s\n' '# AGENTS.md B-5: rootful podman (crun memfd re-exec) under fapolicyd' \
+                  'allow perm=open uid=0 pattern=ld_so exe=/ : all' > /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                chmod 644 /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                chgrp fapolicyd /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                sed -i 's/^integrity = .*/integrity = sha256/' /etc/fapolicyd/fapolicyd.conf
+                # FANOTIFY denial records need at least one audit rule (KCS 7052379).
+                echo '-w /etc/fapolicyd/ -p wa -k fapolicyd-config' > /etc/audit/rules.d/50-fapolicyd.rules
+                augenrules --load || true
+                restorecon -R /etc/fapolicyd
+                systemctl unmask fapolicyd 2>/dev/null || true
+                fagenrules --load || fail "fagenrules"
+                systemctl enable fapolicyd
+                systemctl restart fapolicyd || fail "start fapolicyd" ;;
+              *) fail "unknown FapolicydMode ${FapolicydMode}" ;;
+              esac
+            }
+            # Trust is by path, size and SHA-256 (enforced with integrity = sha256): call this again after
+            # installing or replacing anything under /usr/local, or pass extra paths.
+            fapolicyd_trust() {
+              [ "${FapolicydMode}" = enforce-with-trust ] || return 0
+              rm -f /etc/fapolicyd/trust.d/90-ocp-disconnected
+              for p in /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips \
+                       /usr/local/bin/oc-mirror /usr/local/bin/ccoctl /usr/local/aws-cli "$@"; do
+                [ -e "$p" ] || continue
+                # exit 9 = nothing new to add (duplicate path); not an error here
+                fapolicyd-cli --file add "$(readlink -f "$p")" --trust-file 90-ocp-disconnected >/dev/null || [ $? = 9 ] \
+                  || fail "fapolicyd trust $p"
+              done
+              fapolicyd-cli --update || fail "fapolicyd-cli --update"
+            }
+            fapolicyd_prepare
 
             # DNF install loop due to slow uptime for NAT gateway
             MAX_ATTEMPTS=10
@@ -802,14 +969,6 @@ Resources:
 
             region=${AWS::Region}
 
-            # Mode 600 before the secret is written (was world-readable, CF-9).
-            ( umask 077
-              echo '${pull_secret}' > /tmp/pull-secret.json
-              echo '${pull_secret}' > ~ec2-user/pull-secret.json )
-
-            chown ec2-user:ec2-user ~ec2-user/pull-secret.json
-            chmod 600 /tmp/pull-secret.json ~ec2-user/pull-secret.json
-
             # Every download, upload and extract is checked; any failure signals FAILURE (CF-14).
             wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz || fail "download openshift-client ${client_build} ${ocp_ver}"
             wget -q https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${ocp_ver}/openshift-install-rhel9-amd64.tar.gz || fail "download openshift-install ${ocp_ver}"
@@ -824,6 +983,21 @@ Resources:
             curl -fsS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" || fail "download AWS CLI"
             unzip -q awscliv2.zip || fail "unzip AWS CLI"
             ./aws/install || fail "install AWS CLI"
+            fapolicyd_trust
+
+            # Pull secret (CF-9): from SSM Parameter Store when PullSecretSsmParameter is set, so it is not
+            # in the user data; otherwise the legacy PullSecretJson. Only in ~ec2-user, mode 600 (no
+            # /tmp copy any more).
+            ( umask 077
+              if [ -n '${ps_ssm}' ]; then
+                /usr/local/bin/aws ssm get-parameter --region ${AWS::Region} --name '${ps_ssm}' --with-decryption \
+                  --query Parameter.Value --output text > ~ec2-user/pull-secret.json
+              else
+                echo '${pull_secret}' > ~ec2-user/pull-secret.json
+              fi ) || fail "write the pull secret"
+            jq -e '.auths | length > 0' ~ec2-user/pull-secret.json >/dev/null || fail "pull secret has no .auths"
+            chown ec2-user:ec2-user ~ec2-user/pull-secret.json
+            chmod 600 ~ec2-user/pull-secret.json
             
             for f in openshift-client-linux-amd64-${client_build}-${ocp_ver}.tar.gz openshift-install-rhel9-amd64.tar.gz \
                      oc-mirror.rhel9.tar.gz ccoctl-linux-${client_build}-${ocp_ver}.tar.gz mirror-registry-amd64.tar.gz; do
@@ -841,12 +1015,14 @@ Resources:
             sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo ln -sf /usr/local/bin/openshift-install-fips /usr/local/bin/openshift-install
+            fapolicyd_trust "$PWD/mirror-registry"
 
             # Signal to the registry node that we're done mirroring to S3
             signal SUCCESS "Configuration Complete"
 
 
           - pull_secret: !Ref PullSecretJson
+            ps_ssm: !Ref PullSecretSsmParameter
             ocp_ver: !Ref OpenShiftVersion
             client_build: !Ref ClientRhelBuild
             ocm_url: !Ref OcMirrorUrl
@@ -865,7 +1041,7 @@ Resources:
         - Effect: "Allow"
           Principal:
             Service:
-            - "ec2.amazonaws.com"
+            - !Sub "ec2.${AWS::URLSuffix}"
           Action:
           - "sts:AssumeRole"
       Path: "/"
@@ -973,17 +1149,61 @@ Resources:
 
             # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
             dnf update -y
-            # fapolicyd breaks mirror-registry and other tooling; keep it off for now (AGENTS.md B-5).
-            if rpm -q fapolicyd >/dev/null 2>&1; then
-              systemctl disable --now fapolicyd || true
-              systemctl mask fapolicyd || true
-            fi
+            # fapolicyd (AGENTS.md B-5, examples/fapolicyd/RESULTS.md). FapolicydMode:
+            #   enforce-with-trust  install fapolicyd if missing, enable it enforcing, add the crun rule
+            #                       (rootful podman / mirror-registry), integrity sha256, an audit rule so
+            #                       denials are logged, and trust the non-RPM tools under /usr/local by hash
+            #   disable             stop, disable and mask it (the behaviour before B-5)
+            type fail >/dev/null 2>&1 || fail() { echo "FATAL: $*"; exit 1; }
+            fapolicyd_prepare() {
+              case "${FapolicydMode}" in
+              disable)
+                if rpm -q fapolicyd >/dev/null 2>&1; then
+                  systemctl disable --now fapolicyd || true
+                  systemctl mask fapolicyd || true
+                fi ;;
+              enforce-with-trust)
+                rpm -q fapolicyd >/dev/null 2>&1 || dnf install -y fapolicyd || fail "install fapolicyd"
+                # crun re-executes itself from a memfd (exe=/); the default ld_so pattern rule then denies its
+                # library loads and every rootful podman run fails with "OCI permission denied". Must sort
+                # before 30-patterns.rules; exe=/usr/bin/crun does not match (tested).
+                printf '%s\n' '# AGENTS.md B-5: rootful podman (crun memfd re-exec) under fapolicyd' \
+                  'allow perm=open uid=0 pattern=ld_so exe=/ : all' > /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                chmod 644 /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                chgrp fapolicyd /etc/fapolicyd/rules.d/25-ocp-disconnected-crun.rules
+                sed -i 's/^integrity = .*/integrity = sha256/' /etc/fapolicyd/fapolicyd.conf
+                # FANOTIFY denial records need at least one audit rule (KCS 7052379).
+                echo '-w /etc/fapolicyd/ -p wa -k fapolicyd-config' > /etc/audit/rules.d/50-fapolicyd.rules
+                augenrules --load || true
+                restorecon -R /etc/fapolicyd
+                systemctl unmask fapolicyd 2>/dev/null || true
+                fagenrules --load || fail "fagenrules"
+                systemctl enable fapolicyd
+                systemctl restart fapolicyd || fail "start fapolicyd" ;;
+              *) fail "unknown FapolicydMode ${FapolicydMode}" ;;
+              esac
+            }
+            # Trust is by path, size and SHA-256 (enforced with integrity = sha256): call this again after
+            # installing or replacing anything under /usr/local, or pass extra paths.
+            fapolicyd_trust() {
+              [ "${FapolicydMode}" = enforce-with-trust ] || return 0
+              rm -f /etc/fapolicyd/trust.d/90-ocp-disconnected
+              for p in /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips \
+                       /usr/local/bin/oc-mirror /usr/local/bin/ccoctl /usr/local/aws-cli "$@"; do
+                [ -e "$p" ] || continue
+                # exit 9 = nothing new to add (duplicate path); not an error here
+                fapolicyd-cli --file add "$(readlink -f "$p")" --trust-file 90-ocp-disconnected >/dev/null || [ $? = 9 ] \
+                  || fail "fapolicyd trust $p"
+              done
+              fapolicyd-cli --update || fail "fapolicyd-cli --update"
+            }
+            fapolicyd_prepare
 
             # DNF install loop due to slow uptime for NAT gateway
             MAX_ATTEMPTS=10
             attempt_num=1
             until [ $attempt_num -gt $MAX_ATTEMPTS ] || \
-                  sudo dnf install -y wget vim podman unzip jq tmux &> /dev/null; do
+                  sudo dnf install -y wget vim podman unzip jq tmux acl &> /dev/null; do
                 
                 echo "Attempt $attempt_num failed. Trying again in 10 seconds..."
                 sleep 10
@@ -993,6 +1213,7 @@ Resources:
             curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
             unzip -q awscliv2.zip
             ./aws/install
+            fapolicyd_trust
             [ -x /usr/local/bin/aws ] || { echo "FATAL: AWS CLI not installed; cannot signal, stack will time out"; exit 1; }
             [ $attempt_num -le $MAX_ATTEMPTS ] || fail "dnf install of the base packages"
 
@@ -1010,6 +1231,7 @@ Resources:
             sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo ln -sf /usr/local/bin/openshift-install-fips /usr/local/bin/openshift-install
+            fapolicyd_trust "$PWD/mirror-registry"
 
             #sudo fips-mode-setup --enable
             #Don't install mirror-registry until after FIPS is enabled

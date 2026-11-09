@@ -60,4 +60,8 @@ if [ -n "$extra" ]; then
 fi
 aws cloudformation delete-stack --stack-name "$VPC_STACK_NAME"
 aws cloudformation wait stack-delete-complete --stack-name "$VPC_STACK_NAME"
+# The pull secret parameter is created by 10-deploy-vpc.sh outside the stack (CF-9).
+if aws ssm delete-parameter --name "$PULL_SECRET_SSM_NAME" 2>/dev/null; then
+    echo "==> Deleted SSM parameter ${PULL_SECRET_SSM_NAME}"
+fi
 echo "==> Deleted"

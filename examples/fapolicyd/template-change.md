@@ -1,6 +1,6 @@
 # Proposed CloudFormation change: fapolicyd enforcing with trust (B-5)
 
-**Status: proposal only, not applied** to `cloudformation/disconnected_vpc_plus.yaml`. Generated
+**Status: APPLIED 2026-11-08** to `cloudformation/disconnected_vpc_plus.yaml` (default `disable`; set `FAPOLICYD_MODE=enforce-with-trust` in cluster.env, passed by `scripts/10-deploy-vpc.sh`). Originally a proposal generated
 2026-11-06 against the template at commit 5257abc. Lab evidence: `RESULTS.md` in this directory.
 
 ## What it does
@@ -43,8 +43,7 @@
   test before switching an install host to enforcing.
 - Ad-hoc tool updates later (new oc-mirror, new installer) need
   `examples/fapolicyd/fapolicyd-trust-tools.sh` (or `fapolicyd_trust`) to run again.
-- Also add `FAPOLICYD_MODE` to `cluster.env` and pass it from `scripts/10-deploy-vpc.sh` as
-  `FapolicydMode` (not part of this diff).
+- `FAPOLICYD_MODE` is in `cluster.env` and passed by `scripts/10-deploy-vpc.sh` as `FapolicydMode` (done 2026-11-08).
 
 ## Checks done on the proposal
 

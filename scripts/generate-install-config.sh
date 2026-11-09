@@ -372,6 +372,28 @@ spec:
     name: mirror-registry-ca
 EOF
 fi
+if [ "${DISABLE_UNBOUND_ANCHOR:-false}" = "true" ]; then
+    # N-12: mask the daily DNSSEC root trust anchor refresh (data.iana.org, blocked when
+    # disconnected). Cause not yet confirmed; masking a unit that does not exist is harmless.
+    for role in master worker; do
+        cat > "${D0}/99-${role}-mask-unbound-anchor-timer.yaml" <<EOF
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-${role}-mask-unbound-anchor-timer
+  labels:
+    machineconfiguration.openshift.io/role: ${role}
+spec:
+  config:
+    ignition:
+      version: 3.5.0
+    systemd:
+      units:
+      - name: unbound-anchor.timer
+        mask: true
+EOF
+    done
+fi
 for f in "$D0"/*.yaml; do yq -e '.kind' "$f" >/dev/null || { echo "Error: invalid day-0 manifest ${f}" >&2; exit 1; }; done
 echo "    day-0 manifests: $(ls "$D0" | tr '\n' ' ')"
 

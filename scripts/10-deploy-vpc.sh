@@ -99,6 +99,11 @@ echo "==> Key pair ${EC2_KEY_NAME} matches ${SSH_PRIVATE_KEY}"
 jq -e '.auths | length > 0' "$PULL_SECRET_FILE" >/dev/null \
     || { echo "Error: ${PULL_SECRET_FILE} is not a pull secret (no .auths)." >&2; exit 1; }
 
+case "${PULL_SECRET_SOURCE:-ssm}" in ssm|parameter) ;; *) echo "Error: PULL_SECRET_SOURCE must be ssm or parameter." >&2; exit 1 ;; esac
+case "${EGRESS_PROFILE:-broad}" in broad|regional) ;; *) echo "Error: EGRESS_PROFILE must be broad or regional." >&2; exit 1 ;; esac
+case "${FAPOLICYD_MODE:-disable}" in disable|enforce-with-trust) ;; *) echo "Error: FAPOLICYD_MODE must be disable or enforce-with-trust." >&2; exit 1 ;; esac
+case "${S3_GATEWAY_ENDPOINT:-false}" in true|false) ;; *) echo "Error: S3_GATEWAY_ENDPOINT must be true or false." >&2; exit 1 ;; esac
+
 # --- bastion AMI: newest Red Hat RHEL <major> for the region ---------------------
 case "${BASTION_RHEL_VERSION:-9}" in 9|10) ;; *) echo "Error: BASTION_RHEL_VERSION must be 9 or 10." >&2; exit 1 ;; esac
 if [ -z "${BASTION_AMI_ID:-}" ]; then
@@ -158,6 +163,8 @@ jq -n \
     --arg nat "$PROXY_INSTANCE_TYPE" --arg bas "$BASTION_INSTANCE_TYPE" --arg reg "$REGISTRY_INSTANCE_TYPE" \
     --arg ami "$BASTION_AMI_ID" --arg nami "$NODE_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" \
     --arg cb "$CLIENT_BUILD" --arg ocm "$OC_MIRROR_URL" \
+    --arg src "${PULL_SECRET_SOURCE:-ssm}" --arg ssm "$PULL_SECRET_SSM_NAME" \
+    --arg egress "${EGRESS_PROFILE:-broad}" --arg s3ep "${S3_GATEWAY_ENDPOINT:-false}" --arg fapo "${FAPOLICYD_MODE:-disable}" \
     --rawfile ps "$PULL_SECRET_FILE" '
     [ {ParameterKey:"VpcCidr",               ParameterValue:$cidr},
       {ParameterKey:"AvailabilityZoneCount", ParameterValue:$azs},
@@ -172,7 +179,11 @@ jq -n \
       {ParameterKey:"AllowedSshCidr",        ParameterValue:$ssh},
       {ParameterKey:"ClientRhelBuild",       ParameterValue:$cb},
       {ParameterKey:"OcMirrorUrl",           ParameterValue:$ocm},
-      {ParameterKey:"PullSecretJson",        ParameterValue:($ps | fromjson | tojson)} ]' > "$PARAMS_FILE"
+      {ParameterKey:"EgressProfile",         ParameterValue:$egress},
+      {ParameterKey:"CreateS3GatewayEndpoint", ParameterValue:$s3ep},
+      {ParameterKey:"FapolicydMode",         ParameterValue:$fapo},
+      {ParameterKey:"PullSecretSsmParameter", ParameterValue:(if $src == "ssm" then $ssm else "" end)},
+      {ParameterKey:"PullSecretJson",        ParameterValue:(if $src == "ssm" then "{}" else ($ps | fromjson | tojson) end)} ]' > "$PARAMS_FILE"
 
 echo "==> Stack ${VPC_STACK_NAME} parameters:"
 jq -r '.[] | "    \(.ParameterKey) = \(if .ParameterKey=="PullSecretJson" then "<\(.ParameterValue|length) bytes, hidden>" else .ParameterValue end)"' "$PARAMS_FILE"
@@ -215,8 +226,18 @@ if status="$(aws cloudformation describe-stacks --stack-name "$VPC_STACK_NAME" \
     esac
 elif [ "$DRY_RUN" -eq 1 ]; then
     echo "==> [dry-run] would create stack ${VPC_STACK_NAME} from ${VPC_TEMPLATE#"${ROOT}/"} (CAPABILITY_IAM)"
+    [ "${PULL_SECRET_SOURCE:-ssm}" = ssm ] && echo "==> [dry-run] would store the pull secret as SSM SecureString ${PULL_SECRET_SSM_NAME}"
     exit 0
 else
+    if [ "${PULL_SECRET_SOURCE:-ssm}" = ssm ]; then
+        # CF-9: the bastion reads the pull secret from Parameter Store with its instance role, so it is
+        # not in the user data. Default aws/ssm key; Intelligent-Tiering switches to the advanced tier
+        # only if the secret is larger than 4 KB. Passed as file:// so it never appears in argv.
+        echo "==> Storing the pull secret as SSM SecureString ${PULL_SECRET_SSM_NAME}"
+        aws ssm put-parameter --name "$PULL_SECRET_SSM_NAME" --type SecureString --overwrite \
+            --tier Intelligent-Tiering --description "OpenShift pull secret for stack ${VPC_STACK_NAME} (CF-9)" \
+            --value "file://${PULL_SECRET_FILE}" --query 'Version' --output text | sed 's/^/    version /'
+    fi
     echo "==> Creating stack ${VPC_STACK_NAME}"
     aws cloudformation create-stack \
         --stack-name "$VPC_STACK_NAME" \
