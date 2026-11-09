@@ -38,7 +38,7 @@ IC="${ROOT}/install-config.yaml"
 
 release_mirror="$(yq -r '.imageDigestSources[] | select(.source == "quay.io/openshift-release-dev/ocp-release") | .mirrors[0]' "$IC")"
 [ -n "$release_mirror" ] || { echo "Error: no ocp-release mirror in ${IC} imageDigestSources." >&2; exit 1; }
-REF="${release_mirror}:${OCP_VERSION}-x86_64"
+REF="${release_mirror}:${INSTALL_VERSION:-$OCP_VERSION}-x86_64"   # INSTALL_VERSION: the upgrade test installs 4.22.z
 
 # IDMS for oc, from imageDigestSources.
 IDMS="$(mktemp)"; trap 'rm -f "$IDMS"' EXIT

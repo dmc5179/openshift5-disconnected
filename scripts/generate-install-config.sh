@@ -5,7 +5,7 @@
 #                              stack built by 10-deploy-vpc.sh.
 #
 # Usage: scripts/generate-install-config.sh [-o <output file>]
-#            [--publish internal|external] [--fips on|off] [--os-image-stream rhel-9|rhel-10]
+#            [--publish internal|external] [--fips on|off] [--os-image-stream rhel-9|rhel-10|none]
 #
 # The flags override PUBLISH, FIPS and OS_IMAGE_STREAM from cluster.env.
 #   --publish internal  (default) private cluster: internal load balancers, private
@@ -107,7 +107,8 @@ EOF
 fi
 grep -q 'BEGIN CERTIFICATE' "$MIRROR_CA_FILE" || { echo "Error: ${MIRROR_CA_FILE} is not a PEM certificate." >&2; exit 1; }
 
-case "$OS_IMAGE_STREAM" in rhel-9|rhel-10) ;; *) echo "Error: OS_IMAGE_STREAM must be rhel-9 or rhel-10." >&2; exit 1 ;; esac
+# none: leave osImageStream out (4.22 installs: the field is behind the OSStreams feature gate there).
+case "$OS_IMAGE_STREAM" in rhel-9|rhel-10|none) ;; *) echo "Error: OS_IMAGE_STREAM must be rhel-9, rhel-10 or none." >&2; exit 1 ;; esac
 # --- ISO / ISO-B constraints ----------------------------------------------------
 if [ "$TARGET_IS_ISO" -eq 1 ]; then
     if [ "$PUBLISH" != "Internal" ]; then
@@ -222,6 +223,7 @@ yq -i '
     | .fips = env(V_FIPS)
     | .publish = strenv(V_PUBLISH)
     | .osImageStream = strenv(V_STREAM)
+    | del(select(.osImageStream == "none") | .osImageStream)
     | .imageDigestSources = env(V_IDMS)
     | .imageDigestSources style=""
     | .additionalTrustBundle = strenv(V_CA)
@@ -324,7 +326,7 @@ if [ "${DISABLE_DEFAULT_CATALOGS:-false}" = "true" ]; then
     # (observed on 5.0.0). Documented switch: spec.availabilityMode: Unavailable
     # (openshift-docs olmv1-disabling-a-default-catalog). Created day 0 here; if the
     # cluster-olm-operator resets them, fall back to `oc patch` after install.
-    cat_ver="${OCP_CHANNEL##*-}"
+    cat_ver="$(echo "${INSTALL_VERSION:-$OCP_VERSION}" | cut -d. -f1,2)"   # the installed release's catalogs
     for c in redhat certified community; do
         cat > "${D0}/99-olmv1-clustercatalog-openshift-${c}-operators-unavailable.yaml" <<EOF
 # Disconnected: keep the default OLM v1 catalog from polling registry.redhat.io.

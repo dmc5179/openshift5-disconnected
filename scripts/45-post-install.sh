@@ -40,6 +40,15 @@ MIRROR_WORKSPACE="${MIRROR_WORKSPACE:-oc-mirror/m2m}"     # relative to the bast
 CR="post-install/cluster-resources"                         # relative to the install host user's home
 ocx() { install_ssh "export KUBECONFIG=~/${RDIR}/auth/kubeconfig; $*"; }
 
+# The mirrored redhat-operator-index catalog for the cluster's own version (the upgrade
+# test mirrors both v4.22 and v5.0; oc-mirror names them ...-v4-22 / ...-v5-0). Falls back
+# to the first redhat-operator-index object. Usage: index_name catalogsource|clustercatalog
+index_name() {
+    ocx "v=\$(oc get clusterversion version -o jsonpath='{.status.desired.version}' | cut -d. -f1,2 | tr . -)
+         all=\$(oc get $1 ${1/catalogsource/-n openshift-marketplace} -o name 2>/dev/null | sed 's|.*/||' | grep redhat-operator-index)
+         echo \"\$all\" | grep -m1 -- \"-v\$v\\\$\" || echo \"\$all\" | head -1"
+}
+
 do_resources() {
     echo "==> Copying cluster-resources from the bastion (~/${MIRROR_WORKSPACE}/working-dir/cluster-resources)"
     install_ssh "rm -rf ~/${CR}; mkdir -p ~/${CR}"
@@ -94,7 +103,7 @@ wait_csv() {   # wait_csv <namespace> <name prefix>
 
 do_osus() {
     local cs
-    cs="$(ocx "oc get catalogsource -n openshift-marketplace -o name | grep -m1 redhat-operator-index | sed 's|.*/||'")"
+    cs="$(index_name catalogsource)"
     [ -n "$cs" ] || { echo "Error: no mirrored redhat-operator-index CatalogSource; run '$0 resources' first." >&2; exit 1; }
     echo "==> Installing OpenShift Update Service from CatalogSource ${cs}"
     ocx "oc apply -f - <<EOF
@@ -155,8 +164,8 @@ EOF"
 
 do_operators() {
     local cc cs
-    cc="$(ocx "oc get clustercatalog -o name | grep -m1 redhat-operator-index | sed 's|.*/||'")"
-    cs="$(ocx "oc get catalogsource -n openshift-marketplace -o name | grep -m1 redhat-operator-index | sed 's|.*/||'")"
+    cc="$(index_name clustercatalog)"
+    cs="$(index_name catalogsource)"
     echo "==> cert-manager via OLM v1 (ClusterExtension from ClusterCatalog ${cc})"
     # A freshly applied ClusterCatalog takes several minutes to unpack (~10 min for the
     # filtered redhat-operator-index); a ClusterExtension created before that reports

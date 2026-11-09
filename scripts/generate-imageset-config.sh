@@ -66,6 +66,15 @@ fi
 PKGS_JSON="$(printf '%s\n' "${MIRROR_OPERATORS:-}" | jq -R -c '
     split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) |
     map(split(":") as $p | {name: $p[0]} + (if ($p|length) > 1 then {channels: [{name: $p[1]}]} else {} end))')"
+# Upgrade test: operators from the OCP_UPGRADE_FROM release's catalog (installed on the 4.22
+# cluster before the upgrade).
+PREV_CATALOG="registry.redhat.io/redhat/redhat-operator-index:v$(echo "${OCP_UPGRADE_FROM:-0.0}" | cut -d. -f1,2)"
+PREV_PKGS_JSON="$(printf '%s\n' "${MIRROR_OPERATORS_UPGRADE_FROM:-}" | jq -R -c '
+    split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) |
+    map(split(":") as $p | {name: $p[0]} + (if ($p|length) > 1 then {channels: [{name: $p[1]}]} else {} end))')"
+if [ "$PREV_PKGS_JSON" != "[]" ] && [ -z "${OCP_UPGRADE_FROM:-}" ]; then
+    echo "Error: MIRROR_OPERATORS_UPGRADE_FROM needs OCP_UPGRADE_FROM." >&2; exit 1
+fi
 IMGS_JSON="$(printf '%s\n' "${MIRROR_ADDITIONAL_IMAGES:-}" | jq -R -c '
     split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | map({name: .})')"
 
@@ -94,7 +103,9 @@ case "${MIRROR_KUBEVIRT:-false}" in
 esac
 
 V_CH="$OCP_CHANNEL" V_MIN="$MIN" V_MAX="$OCP_VERSION" V_GRAPH="$MIRROR_GRAPH" V_KUBEVIRT="${MIRROR_KUBEVIRT:-false}" \
-V_OPS="$(jq -n -c --arg cat "$CATALOG" --argjson p "$PKGS_JSON" 'if ($p|length) > 0 then [{catalog: $cat, packages: $p}] else [] end')" \
+V_OPS="$(jq -n -c --arg cat "$CATALOG" --argjson p "$PKGS_JSON" --arg pcat "$PREV_CATALOG" --argjson pp "$PREV_PKGS_JSON" '
+          (if ($p|length) > 0 then [{catalog: $cat, packages: $p}] else [] end)
+          + (if ($pp|length) > 0 then [{catalog: $pcat, packages: $pp}] else [] end)')" \
 V_IMGS="$IMGS_JSON" \
 yq -i '
       .mirror.platform.channels = [{"name": strenv(V_CH), "type": "ocp",
@@ -114,3 +125,6 @@ echo "==> Wrote ${OUTPUT_FILE}"
 echo "    channel=${OCP_CHANNEL} ${MIN} -> ${OCP_VERSION}  catalog=${CATALOG}"
 echo "    kubeVirtContainer=${MIRROR_KUBEVIRT:-false}"
 echo "    operators=$(printf '%s' "$PKGS_JSON" | jq -r 'map(.name) | join(",") | if .=="" then "(none)" else . end')"
+if [ "$PREV_PKGS_JSON" != "[]" ]; then
+    echo "    operators from ${PREV_CATALOG##*:} (upgrade-from catalog)=$(printf '%s' "$PREV_PKGS_JSON" | jq -r 'map(.name) | join(",")')"
+fi

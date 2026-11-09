@@ -28,6 +28,14 @@
 #   install      install with the extracted installer, wait for completion
 #   post         scripts/45-post-install.sh resources, cleanup, osus (then records
 #                the time the CVO points at the local OSUS), operators, status
+#   checks       read-only cluster checks: node timers and the 00:00 UTC journal
+#                (N-12 data.iana.org), runC pre-upgrade checklist (F8), Lightspeed /
+#                AI state (A2/J5), fapolicyd denials on the install host (B-5)
+#   upgrade      TEST_SCENARIO=upgrade only (otherwise skipped): AI/runC/catalog
+#                snapshot, admin-acks for the admin-gates, `oc adm upgrade --to
+#                OCP_VERSION` through the local OSUS, wait, then signature
+#                verification (history[0].verified), operators, node OS / stream,
+#                and the same snapshot after (J8, D6, J5)
 #   audit        Squid egress for the run, classified by source (cluster nodes,
 #                install host, registry node, other) and destination, ending with
 #                EGRESS VERDICT: PASS (only known exceptions) or FAIL (unexpected: ...)
@@ -35,6 +43,12 @@
 # Environment:
 #   TEST_INSTALL_HOST      registry (default) | bastion | rhel10 - the host that
 #                          extracts the installer and runs install and post
+#   TEST_SCENARIO          install (default): install OCP_VERSION.
+#                          upgrade: mirror MIRROR_UPGRADE_FROM -> OCP_VERSION, install
+#                          MIRROR_UPGRADE_FROM (osImageStream left out: feature-gated in
+#                          4.22), install lightspeed-operator etc. from the v4.22 catalog
+#                          (MIRROR_UPGRADE_FROM_OPERATORS), then the upgrade phase
+#   UPGRADE_TIMEOUT_MIN    upgrade phase wait (default 180)
 #   MIRROR_UPGRADE_FROM    4.22.z start of the mirrored upgrade path (default 4.22.18)
 #   MIRROR_TEST_OPERATORS  operators to mirror (default: OSUS, cert-manager, lightspeed)
 #   MIRROR_KUBEVIRT        cluster.env (default true): kubeVirtContainer in the ISC
@@ -47,13 +61,15 @@
 # logs/50-egress-verdict-<time>.txt. Stops at the first failure; rerun with
 # --from <phase> after fixing it.
 #
-# Tonight's run (RHEL 10 FIPS install host in the private subnet):
-#   TEST_INSTALL_HOST=rhel10 scripts/50-rebuild-and-test.sh --yes
+# Examples:
+#   TEST_INSTALL_HOST=rhel10 scripts/50-rebuild-and-test.sh --yes          # RHEL 10 FIPS install host
+#   TEST_SCENARIO=upgrade scripts/50-rebuild-and-test.sh --yes             # 4.22.z -> 5.0 upgrade
+#   FAPOLICYD_MODE=enforce-with-trust scripts/50-rebuild-and-test.sh --yes # install host under fapolicyd (B-5)
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PHASES=(teardown deploy validate rhel10host mirror creds fipshost sts config extract install post audit)
+PHASES=(teardown deploy validate rhel10host mirror creds fipshost sts config extract install post checks upgrade audit)
 FROM="${PHASES[0]}"; ONLY=""; YES=0; STRICT_EGRESS=0
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -72,6 +88,14 @@ for p in "$FROM" ${ONLY:+"$ONLY"}; do
 done
 export MIRROR_UPGRADE_FROM="${MIRROR_UPGRADE_FROM:-4.22.18}"
 export MIRROR_TEST_OPERATORS="${MIRROR_TEST_OPERATORS:-cincinnati-operator:v1,openshift-cert-manager-operator:stable-v1,lightspeed-operator:stable}"
+export TEST_SCENARIO="${TEST_SCENARIO:-install}"
+case "$TEST_SCENARIO" in install|upgrade) ;; *) echo "TEST_SCENARIO must be install or upgrade." >&2; exit 2 ;; esac
+if [ "$TEST_SCENARIO" = upgrade ]; then
+    # Install the 4.22.z start of the mirrored path; the v4.22 catalog provides the
+    # operators installed before the upgrade (OSUS, cert-manager, lightspeed for J5).
+    export INSTALL_VERSION="$MIRROR_UPGRADE_FROM" OS_IMAGE_STREAM=none
+    export MIRROR_OPERATORS_UPGRADE_FROM="${MIRROR_UPGRADE_FROM_OPERATORS:-$MIRROR_TEST_OPERATORS}"
+fi
 mkdir -p "${ROOT}/logs"
 # Start of the egress-audit window: set on a full run, kept when resuming.
 # Also forget the previous run's OSUS cutoff on a full run.
@@ -132,6 +156,27 @@ phase_validate() {
     for _ in $(seq 1 30); do out="$(proxy_ssh 'echo "redirects=$(sudo iptables -t nat -S | grep -c REDIRECT) squid=$(systemctl is-active squid)"' 2>/dev/null)" && break; sleep 10; done
     echo "    after reboot: ${out:-unreachable}"
     registry_ssh 'printf "    quay.io after reboot: %s\n" "$(curl -s -m 10 -o /dev/null -w %{http_code} https://quay.io/v2/ || echo blocked)"'
+
+    echo "==> Egress profile ${EGRESS_PROFILE:-regional} (CF-17): allowlist and probes from the registry node"
+    proxy_ssh 'sed "s/^/    allow: /" /etc/squid/whitelist.txt'
+    # 000 = blocked by Squid (terminated), anything else = reached the endpoint.
+    registry_ssh "for u in https://sts.${AWS_DEFAULT_REGION}.amazonaws.com/ https://ec2.${AWS_DEFAULT_REGION}.amazonaws.com/ https://iam.amazonaws.com/ https://route53.amazonaws.com/ https://sts.us-west-2.amazonaws.com/ https://s3.us-west-2.amazonaws.com/ https://d1.cloudfront.net/; do
+        printf '    %-45s %s\n' \$u \"\$(curl -s -m 10 -o /dev/null -w %{http_code} \$u)\"; done"
+    echo "    expected with regional: the first four answer (non-000), us-west-2 and cloudfront 000"
+
+    echo "==> Pull secret on the bastion (CF-9, source ${PULL_SECRET_SOURCE:-ssm})"
+    bastion_ssh 'f=~/pull-secret.json; printf "    %s mode=%s auths=%s\n" $f "$(stat -c %a $f)" "$(jq -r ".auths|keys|length" $f)"; ls /tmp/pull-secret.json 2>/dev/null && echo "    /tmp copy present (unexpected)" || echo "    no /tmp copy"'
+    local bid; bid="$(aws ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=${VPC_STACK_NAME}" "Name=tag:aws:cloudformation:logical-id,Values=HelperInstance" "Name=instance-state-name,Values=running" --query 'Reservations[0].Instances[0].InstanceId' --output text)"
+    if aws ec2 describe-instance-attribute --instance-id "$bid" --attribute userData --query UserData.Value --output text | base64 -d | grep -q '"auths"'; then
+        echo "    bastion user data CONTAINS a pull secret"; [ "${PULL_SECRET_SOURCE:-ssm}" = ssm ] && { echo "Error: SSM mode but the secret is in the user data." >&2; return 1; }
+    else echo "    bastion user data: no pull secret"; fi
+    bastion_ssh "aws ssm get-parameters-by-path --path / --max-results 5 >/dev/null 2>&1 && echo '    SSM: other parameters readable (unexpected)' || echo '    SSM: only the pull secret parameter is readable (expected)'"
+
+    echo "==> fapolicyd (FAPOLICYD_MODE=${FAPOLICYD_MODE:-disable}, B-5)"
+    for h in bastion registry proxy; do
+        case $h in bastion) f=bastion_ssh ;; registry) f=registry_ssh ;; proxy) f=proxy_ssh ;; esac
+        $f 'printf "%s enabled=%s\n" "$(systemctl is-active fapolicyd 2>/dev/null)" "$(systemctl is-enabled fapolicyd 2>/dev/null)"' | sed "s/^/    ${h}: /"
+    done
 }
 
 phase_rhel10host() {
@@ -144,6 +189,7 @@ phase_mirror() {
     env_load; stack_ready
     echo "==> ImageSetConfiguration: ${OCP_CHANNEL} ${MIRROR_UPGRADE_FROM} -> ${OCP_VERSION}, operators ${MIRROR_TEST_OPERATORS}"
     OCP_UPGRADE_FROM="$MIRROR_UPGRADE_FROM" MIRROR_OPERATORS="$MIRROR_TEST_OPERATORS" \
+        MIRROR_OPERATORS_UPGRADE_FROM="${MIRROR_OPERATORS_UPGRADE_FROM:-}" \
         "${ROOT}/scripts/generate-imageset-config.sh" -o "${ROOT}/imageset-config.yaml"
     scp -q "${SSH_OPTS[@]}" "${ROOT}/imageset-config.yaml" "${ROOT}/scripts/bastion-mirror-to-mirror.sh" "ec2-user@${BASTION_IP}:"
     # Quay init password from the registry node's install log, passed via a mode-600 file.
@@ -201,8 +247,23 @@ phase_sts()      { "${ROOT}/scripts/20-prepare-sts.sh"; }
 phase_config()   { "${ROOT}/scripts/generate-install-config.sh"; yq '{"fips": .fips, "osImageStream": .osImageStream, "publish": .publish, "capabilities": .capabilities}' "${ROOT}/install-config.yaml"; }
 phase_extract()  { INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/38-extract-installer.sh"; }
 phase_install() {
-    INSTALL_HOST="$TEST_INSTALL_HOST" INSTALLER_BIN='~/bin-mirror/openshift-install-fips' "${ROOT}/scripts/40-install-cluster.sh" start
-    INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/40-install-cluster.sh" wait
+    if ! { INSTALL_HOST="$TEST_INSTALL_HOST" INSTALLER_BIN='~/bin-mirror/openshift-install-fips' "${ROOT}/scripts/40-install-cluster.sh" start &&
+           INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/40-install-cluster.sh" wait; }; then
+        fapolicyd_report
+        return 1
+    fi
+}
+
+# B-5: fapolicyd denials on the install host (the installer unpacks and runs etcd,
+# kube-apiserver and the CAPI providers under <install-dir>/cluster-api/).
+fapolicyd_report() {
+    env_load; stack_ready >/dev/null
+    echo "==> fapolicyd on the install host (${TEST_INSTALL_HOST})"
+    INSTALL_HOST="$TEST_INSTALL_HOST" install_ssh 'if systemctl is-active -q fapolicyd 2>/dev/null; then
+            echo "    fapolicyd active; denials since boot:"
+            sudo journalctl -b -u fapolicyd --no-pager 2>/dev/null | grep -iE "deny|dec=deny" | tail -15 | sed "s/^/      /"
+            sudo grep -h "type=FANOTIFY" /var/log/audit/audit.log 2>/dev/null | tail -5 | sed "s/^/      /"
+        else echo "    fapolicyd not active"; fi' || true
 }
 phase_post() {
     local a
@@ -212,6 +273,88 @@ phase_post() {
     date -u +%s > "${ROOT}/logs/.50-osus-done"
     for a in operators status; do INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/45-post-install.sh" "$a"; done
 }
+phase_checks() {
+    env_load; stack_ready
+    local RDIR="ocp-install/${CLUSTER_NAME}"
+    ocx() { INSTALL_HOST="$TEST_INSTALL_HOST" install_ssh "export KUBECONFIG=~/${RDIR}/auth/kubeconfig; $*"; }
+    echo "==> N-12: timers and the 00:00 UTC window on one worker"
+    ocx 'w=$(oc get nodes -l node-role.kubernetes.io/worker -o jsonpath="{.items[0].metadata.name}");
+         oc debug node/$w -q -- chroot /host bash -c "systemctl list-timers --all --no-pager | grep -iE \"anchor|unbound|NEXT\";
+           systemctl cat unbound-anchor.timer 2>/dev/null | grep -E \"OnCalendar|Persistent\" || echo \"unbound-anchor.timer: not present\";
+           journalctl --since \"\$(date -u +%F) 00:00:00\" --until \"\$(date -u +%F) 00:02:00\" --utc --no-pager 2>/dev/null | grep -iE \"anchor|iana|unbound|dnssec\" | head -10" 2>/dev/null' | sed 's/^/    /'
+    echo "    (the journal lines only exist if the cluster has been up across 00:00 UTC)"
+    echo "==> F8: runC pre-upgrade checklist (notes/research-runc-rhcos10.md section a)"
+    ocx 'echo "    override MCs: $(oc get mc -o name | grep -c generated-crio-default-container-runtime)";
+         echo "    ContainerRuntimeConfigs with runc: $(oc get containerruntimeconfig -o jsonpath="{range .items[*]}{.spec.containerRuntimeConfig.defaultRuntime}{\"\\n\"}{end}" 2>/dev/null | grep -c runc)";
+         echo "    CO EvaluationConditionsDetected: $(oc get co machine-config -o jsonpath="{.status.conditions[?(@.type==\"EvaluationConditionsDetected\")].status} {.status.conditions[?(@.type==\"EvaluationConditionsDetected\")].reason}")";
+         echo "    osimagestream default: $(oc get osimagestream cluster -o jsonpath="{.spec.defaultStream} (status {.status.defaultStream})" 2>/dev/null || echo n/a)"
+         oc -n openshift-monitoring exec prometheus-k8s-0 -c prometheus -- curl -s localhost:9090/api/v1/query --data-urlencode "query=container_runtime_crio_default_runtime" 2>/dev/null |
+           jq -r ".data.result[] | \"    runtime \(.metric.runtime) on \(.metric.instance)\"" 2>/dev/null'
+    ai_snapshot
+    fapolicyd_report
+}
+
+# A2 / J5: Lightspeed and AI surface on the cluster.
+ai_snapshot() {
+    echo "==> AI / Lightspeed state"
+    ocx 'echo "    console capabilities: $(oc get console.operator cluster -o jsonpath="{.spec.customization.capabilities}")";
+         echo "    console plugins: $(oc get console.operator cluster -o jsonpath="{.spec.plugins}")";
+         echo "    ConsolePlugins: $(oc get consoleplugins -o name 2>/dev/null | tr "\n" " ")";
+         echo "    AI CRDs: $(oc get crd -o name | grep -iE "ols|agentic|lightspeed" | sed "s|.*/||" | tr "\n" " ")";
+         echo "    OLSConfig / AgenticOLSConfig objects: $(oc get olsconfig -A --no-headers 2>/dev/null | wc -l) / $(oc get agenticolsconfig -A --no-headers 2>/dev/null | wc -l)";
+         echo "    lightspeed CSV: $(oc get csv -n openshift-lightspeed --no-headers 2>/dev/null | awk "{print \$1, \$NF}" | tr "\n" " ")";
+         echo "    VAP ai-opt-out installed: $(oc get validatingadmissionpolicy -o name 2>/dev/null | grep -c ai-opt-out)"'
+}
+
+phase_upgrade() {
+    if [ "$TEST_SCENARIO" != upgrade ]; then echo "    TEST_SCENARIO=${TEST_SCENARIO}: no upgrade test"; return 0; fi
+    env_load; stack_ready
+    local RDIR="ocp-install/${CLUSTER_NAME}"
+    ocx() { INSTALL_HOST="$TEST_INSTALL_HOST" install_ssh "export KUBECONFIG=~/${RDIR}/auth/kubeconfig; $*"; }
+    echo "==> Before: $(ocx "oc get clusterversion version -o jsonpath='{.status.desired.version} channel={.spec.channel} upstream={.spec.upstream}'")"
+    ai_snapshot
+    echo "==> Available updates through the local OSUS"
+    ocx 'oc adm upgrade 2>&1 | head -20' | sed 's/^/    /'
+    echo "==> Admin gates for this update (acknowledged automatically, listed here)"
+    ocx 'oc -n openshift-config-managed get cm admin-gates -o json | jq -r ".data // {} | to_entries[] | \"    \(.key): \(.value)\""
+         for k in $(oc -n openshift-config-managed get cm admin-gates -o json | jq -r ".data // {} | keys[]"); do
+             oc -n openshift-config patch cm admin-acks --type merge -p "{\"data\":{\"$k\":\"true\"}}" >/dev/null && echo "    acked $k"
+         done'
+    if [ "$(yq -r '.credentialsMode' "${ROOT}/install-config.yaml")" = Manual ]; then
+        # Manual (STS) mode: the CCO keeps Upgradeable=False for a minor upgrade until the
+        # new release's CredentialsRequests have credentials and upgradeable-to is set.
+        echo "==> Manual credentials for ${OCP_VERSION}: ccoctl create-iam-roles against the existing OIDC provider"
+        "${ROOT}/scripts/20-prepare-sts.sh" --upgrade-to "$OCP_VERSION"
+        local up="${CLUSTER_DIR}/ccoctl-${OCP_VERSION}/manifests"
+        INSTALL_HOST="$TEST_INSTALL_HOST" install_ssh "rm -rf ~/sts-${OCP_VERSION}; mkdir -p ~/sts-${OCP_VERSION}"
+        tar -C "$up" -czf - . | INSTALL_HOST="$TEST_INSTALL_HOST" install_ssh "tar -C ~/sts-${OCP_VERSION} -xzf -"
+        ocx "oc apply -f ~/sts-${OCP_VERSION}/ | sed 's/^/    /'
+             oc annotate cloudcredential.operator.openshift.io/cluster cloudcredential.openshift.io/upgradeable-to=${OCP_VERSION} --overwrite | sed 's/^/    /'"
+        sleep 60
+    fi
+    echo "==> Upgradeable condition: $(ocx "oc get clusterversion version -o jsonpath='{.status.conditions[?(@.type==\"Upgradeable\")].status} {.status.conditions[?(@.type==\"Upgradeable\")].message}'")"
+    echo "==> oc adm upgrade --to=${OCP_VERSION}"
+    ocx "oc adm upgrade --to=${OCP_VERSION}" | sed 's/^/    /'
+    local t0=$SECONDS max=$(( ${UPGRADE_TIMEOUT_MIN:-180} * 60 )) st="" last=0
+    while [ $((SECONDS - t0)) -lt "$max" ]; do
+        st="$(ocx "oc get clusterversion version -o jsonpath='{.status.history[0].version} {.status.history[0].state} {.status.conditions[?(@.type==\"Progressing\")].message}'" 2>/dev/null || echo "api-unavailable")"
+        case "$st" in "${OCP_VERSION} Completed"*) break ;; esac
+        if [ $((SECONDS - last)) -ge 600 ]; then echo "    $(( (SECONDS - t0) / 60 )) min: ${st:0:200}"; last=$SECONDS; fi
+        sleep 60
+    done
+    echo "==> After $(( (SECONDS - t0) / 60 )) min: ${st:0:200}"
+    ocx 'oc get clusterversion; oc get clusterversion version -o jsonpath="{range .status.history[*]}    {.version} {.state} verified={.verified} {.completionTime}{\"\\n\"}{end}"
+         oc get co --no-headers | awk "{a+=(\$3==\"True\"); d+=(\$5==\"True\")} END {print \"    operators: \"NR\", available=\"a\", degraded=\"d}"
+         oc get nodes -o custom-columns=NAME:.metadata.name,OS:.status.nodeInfo.osImage,RUNTIME:.status.nodeInfo.containerRuntimeVersion --no-headers | sed "s/^/    /"
+         echo "    osimagestream: $(oc get osimagestream cluster -o jsonpath="{.spec.defaultStream} (status {.status.defaultStream})" 2>/dev/null)"
+         echo "    image pull failures: $(oc get pods -A --no-headers | grep -cE "ImagePull|ErrImage" || true)"'
+    ai_snapshot
+    case "$st" in "${OCP_VERSION} Completed"*) ;; *) echo "Error: upgrade to ${OCP_VERSION} did not complete in ${UPGRADE_TIMEOUT_MIN:-180} min." >&2; return 1 ;; esac
+    ocx "oc get clusterversion version -o jsonpath='{.status.history[0].verified}'" | grep -q true \
+        || { echo "Error: the ${OCP_VERSION} release was not signature-verified (history[0].verified != true)." >&2; return 1; }
+    echo "    ${OCP_VERSION} release signature verified (J8)"
+}
+
 phase_audit() {
     env_load; stack_ready
     local since cutoff cutoff_note inst_ip nodes cidrs proxy_ip tmp verdict_file

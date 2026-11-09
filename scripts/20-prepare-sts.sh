@@ -3,12 +3,21 @@
 # 20-prepare-sts.sh - set up AWS STS (short-lived credentials) for the cluster's
 #                     operators with ccoctl, before the install.
 #
-# Usage: scripts/20-prepare-sts.sh [--dry-run] [--force-download]
+# Usage: scripts/20-prepare-sts.sh [--dry-run] [--force-download] [--upgrade-to VERSION]
 #
 #   --dry-run          extract the CredentialsRequests and run ccoctl with
 #                      --dry-run: write the IAM/OIDC JSON it would create into
 #                      clusters/<name>/ccoctl, create nothing in AWS
 #   --force-download   re-fetch bin/ccoctl and bin/oc even if present
+#   --upgrade-to V     before a minor upgrade of a Manual-mode cluster: extract the
+#                      CredentialsRequests of release V, and create the roles they
+#                      need against the EXISTING OIDC provider (ccoctl aws
+#                      create-iam-roles). Writes clusters/<name>/ccoctl-<V>/manifests
+#                      (Secrets to apply with oc) and uses bin/<V>/ for the tools.
+#                      Then: oc annotate cloudcredential.operator.openshift.io/cluster
+#                      cloudcredential.openshift.io/upgradeable-to=<V> --overwrite
+#
+# Release: INSTALL_VERSION (cluster.env; default OCP_VERSION), or V with --upgrade-to.
 #
 # Needs install-config.yaml rendered with credentialsMode: Manual
 # (scripts/generate-install-config.sh). Run it on a connected host (it reads the
@@ -33,10 +42,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ORIG_ARGS=("$@")
 DRY_RUN=0
 FORCE_DL=0
+UPGRADE_TO=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run)        DRY_RUN=1; shift ;;
         --force-download) FORCE_DL=1; shift ;;
+        --upgrade-to)     UPGRADE_TO="$2"; shift 2 ;;
         -h|--help)        sed -n '2,29p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "20-prepare-sts.sh: unknown option '$1'" >&2; exit 2 ;;
     esac
@@ -57,8 +68,9 @@ mode="$(yq -r '.credentialsMode' "$IC")"
 [ -f "$PULL_SECRET_FILE" ] || { echo "Error: pull secret not found: ${PULL_SECRET_FILE}" >&2; exit 1; }
 
 # --- 1. release-matched tools -----------------------------------------------------
-BIN="${ROOT}/bin"
-MIRROR="https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OCP_VERSION}"
+STS_VERSION="${UPGRADE_TO:-${INSTALL_VERSION:-$OCP_VERSION}}"
+BIN="${ROOT}/bin${UPGRADE_TO:+/${UPGRADE_TO}}"
+MIRROR="https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${STS_VERSION}"
 mkdir -p "$BIN"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -66,8 +78,8 @@ trap 'rm -rf "$WORK"' EXIT
 fetch_tool() {   # <tarball> <binary>
     local tarball="$1" binary="$2"
     if [ "$FORCE_DL" -eq 0 ] && [ -x "${BIN}/${binary}" ] && [ -f "${BIN}/.${binary}.version" ] \
-       && [ "$(cat "${BIN}/.${binary}.version")" = "$OCP_VERSION" ]; then
-        echo "==> ${binary} ${OCP_VERSION} already in bin/"
+       && [ "$(cat "${BIN}/.${binary}.version")" = "$STS_VERSION" ]; then
+        echo "==> ${binary} ${STS_VERSION} already in ${BIN#"${ROOT}/"}/"
         return 0
     fi
     echo "==> Downloading ${tarball}"
@@ -80,17 +92,17 @@ fetch_tool() {   # <tarball> <binary>
     mkdir -p "${WORK}/x-${binary}"
     tar -xzf "${WORK}/${tarball}" -C "${WORK}/x-${binary}"
     install -m 0755 "${WORK}/x-${binary}/${binary}" "${BIN}/${binary}"
-    echo "$OCP_VERSION" > "${BIN}/.${binary}.version"
+    echo "$STS_VERSION" > "${BIN}/.${binary}.version"
     echo "    installed bin/${binary}"
 }
 # RHEL 9 builds: the mirror publishes no rhel10 variants yet (AGENTS.md B-2).
-fetch_tool "ccoctl-linux-rhel9-${OCP_VERSION}.tar.gz" ccoctl
-fetch_tool "openshift-client-linux-amd64-rhel9-${OCP_VERSION}.tar.gz" oc
+fetch_tool "ccoctl-linux-rhel9-${STS_VERSION}.tar.gz" ccoctl
+fetch_tool "openshift-client-linux-amd64-rhel9-${STS_VERSION}.tar.gz" oc
 
 # --- 2. CredentialsRequests -----------------------------------------------------------
-RELEASE_IMAGE="quay.io/openshift-release-dev/ocp-release:${OCP_VERSION}-x86_64"
-CR_DIR="${CLUSTER_DIR}/credrequests"
-OUT_DIR="${CLUSTER_DIR}/ccoctl"
+RELEASE_IMAGE="quay.io/openshift-release-dev/ocp-release:${STS_VERSION}-x86_64"
+CR_DIR="${CLUSTER_DIR}/credrequests${UPGRADE_TO:+-${UPGRADE_TO}}"
+OUT_DIR="${CLUSTER_DIR}/ccoctl${UPGRADE_TO:+-${UPGRADE_TO}}"
 rm -rf "$CR_DIR"; mkdir -p "$CR_DIR"
 echo "==> Extracting CredentialsRequests from ${RELEASE_IMAGE} (enabled capabilities only)"
 "${BIN}/oc" adm release extract --registry-config "$PULL_SECRET_FILE" \
@@ -100,6 +112,21 @@ echo "    $(find "$CR_DIR" -name '*.yaml' | wc -l) CredentialsRequests:"
 grep -h '^  name:' "$CR_DIR"/*.yaml 2>/dev/null | awk '{print "      " $2}' | sort -u
 
 # --- 3. ccoctl ------------------------------------------------------------------------
+if [ -n "$UPGRADE_TO" ]; then
+    # Upgrade: reuse the cluster's OIDC provider; create/update one role per request.
+    idp="$(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output text | tr '\t' '\n' | grep -m1 "/${CCOCTL_NAME}-oidc" || true)"
+    [ -n "$idp" ] || { echo "Error: no OIDC provider for ${CCOCTL_NAME}; was the cluster installed with this script?" >&2; exit 1; }
+    ARGS=(aws create-iam-roles --name "$CCOCTL_NAME" --region "$REGION"
+          --credentials-requests-dir "$CR_DIR" --identity-provider-arn "$idp" --output-dir "$OUT_DIR")
+    [ "$DRY_RUN" -eq 1 ] && ARGS+=(--dry-run)
+    rm -rf "$OUT_DIR"; mkdir -p "$OUT_DIR"
+    echo "==> ccoctl ${ARGS[*]}"
+    "${BIN}/ccoctl" "${ARGS[@]}"
+    echo "==> Apply before upgrading to ${UPGRADE_TO}:"
+    echo "    oc apply -f ${OUT_DIR}/manifests/"
+    echo "    oc annotate cloudcredential.operator.openshift.io/cluster cloudcredential.openshift.io/upgradeable-to=${UPGRADE_TO} --overwrite"
+    exit 0
+fi
 ARGS=(aws create-all --name "$CCOCTL_NAME" --region "$REGION"
       --credentials-requests-dir "$CR_DIR" --output-dir "$OUT_DIR")
 [ "$CCOCTL_PRIVATE_BUCKET" = "true" ] && ARGS+=(--create-private-s3-bucket)
