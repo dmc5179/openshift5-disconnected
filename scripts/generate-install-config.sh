@@ -263,7 +263,9 @@ if [ "$TARGET_IS_ISO" -eq 1 ] && [ -s "$AWS_CA_BUNDLE_FILE" ]; then
     V_ACA="$(cat "$AWS_CA_BUNDLE_FILE")" yq -i '.additionalTrustBundle = .additionalTrustBundle + "\n" + strenv(V_ACA)' "$OUTPUT_FILE"
 fi
 if [ -n "${RHCOS_AMI_ID:-}" ]; then
-    V_AMI="$RHCOS_AMI_ID" yq -i '.platform.aws.amiID = strenv(V_AMI)' "$OUTPUT_FILE"
+    # platform.aws.amiID is deprecated (installer pkg/types/aws/platform.go); use the
+    # default machine pool. It must match osImageStream: nothing checks that (AGENTS.md I5).
+    V_AMI="$RHCOS_AMI_ID" yq -i '.platform.aws.defaultMachinePlatform.amiID = strenv(V_AMI)' "$OUTPUT_FILE"
 fi
 
 # Block style throughout, for readability; keep the CA as a literal block.

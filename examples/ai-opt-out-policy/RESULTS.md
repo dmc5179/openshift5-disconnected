@@ -217,3 +217,13 @@ The policy was **left installed** on the lab cluster.
 - `policy.yaml`: the five `ValidatingAdmissionPolicy` + `ValidatingAdmissionPolicyBinding` pairs, commented.
 - `tests/`: the manifests used above. Use them only with `--dry-run=server`; the "other" ones are the
   allowed controls.
+
+## Change 2026-11-08: allow the AgenticOLSConfig kill switch (not yet lab-tested)
+Research (notes/research-jira-iso-followups.md, J5) found that `AgenticOLSConfig` (singleton `cluster`) is the
+**kill switch** for the agentic system: `spec.suspended: true` stops it, and a missing object counts as
+`suspended: false` (OLS-3161, OLS-3162, OLS-3316). Rule 1 denied every CREATE, which would also stop an admin
+from turning the kill switch on. Rule 1 now allows CREATE/UPDATE of `AgenticOLSConfig` when `spec.suspended`
+is `true`; everything else is unchanged. To test at the next rebuild (lightspeed-operator 2.0 installed):
+create `AgenticOLSConfig cluster` with `spec.suspended: true` (expect allowed) and with `false` (expect denied),
+and `oc apply --dry-run=server -f policy.yaml` for the CEL compile check. Upstream notes the semantics may
+flip after OLS 2.0 ("explicit, unsuspended AgenticOLSConfig" required); recheck on newer bundles.

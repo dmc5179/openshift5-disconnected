@@ -13,6 +13,10 @@
 #                                    object (OLSConfig, AgenticOLSConfig, AgenticRun,
 #                                    LLMProvider, Agent, ApprovalPolicy, ...) and any UPDATE
 #                                    that changes .spec of an existing one.
+#                                    Exception: AgenticOLSConfig with spec.suspended: true is
+#                                    allowed. It is the vendor's kill switch for the agentic
+#                                    system (OLS-3161/OLS-3162: a missing AgenticOLSConfig
+#                                    means "not suspended"), so the policy must not block it.
 #   2. ai-opt-out-olm-subscription   CREATE of an OLM v0 Subscription for package
 #                                    lightspeed-operator, or an UPDATE that changes its spec
 #                                    (channel, approval, startingCSV, ...).
@@ -65,14 +69,19 @@ spec:
   - name: not-break-glass
     expression: "!('ai-opt-out-break-glass' in request.userInfo.groups)"
   validations:
-  # CREATE is always denied. UPDATE is allowed only when the object is being
-  # deleted (finalizer removal) or when .spec is unchanged (metadata-only change).
+  # CREATE is denied and UPDATE is allowed only when the object is being deleted
+  # (finalizer removal) or when .spec is unchanged (metadata-only change), except
+  # that the AgenticOLSConfig kill switch may always be set to suspended: true.
+  # (Kill-switch exception added 2026-11-08 from Jira/upstream specs; not yet
+  # lab-tested, see RESULTS.md.)
   - expression: >-
-      request.operation == 'UPDATE' && (
+      (request.kind.kind == 'AgenticOLSConfig' && has(object.spec) &&
+       has(object.spec.suspended) && object.spec.suspended == true) ||
+      (request.operation == 'UPDATE' && (
         has(object.metadata.deletionTimestamp) ||
         (has(object.spec) == has(oldObject.spec) &&
          (!has(object.spec) || object.spec == oldObject.spec))
-      )
+      ))
     messageExpression: >-
       'AI features are disabled on this cluster by policy ai-opt-out-ai-resources: ' +
       request.operation + ' of ' + request.kind.kind + ' (' + request.kind.group +
