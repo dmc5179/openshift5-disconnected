@@ -667,12 +667,20 @@ Resources:
               # Regional AWS endpoints (EC2, ELB, STS, S3 incl. bucket.s3.<region>..., CloudFormation for
               # cfn-signal, tagging, service quotas, SSM, KMS), the partition-global endpoints the
               # installer uses, the AWS CLI download, and RHUI for dnf. GovCloud's global IAM and
-              # Route 53 names are listed too (harmless elsewhere).
+              # Route 53 names are listed too (harmless elsewhere). The ingress operator finds the
+              # private hosted zone through the Resource Groups Tagging API, whose endpoint for the
+              # global Route 53 service is us-east-1 (us-gov-west-1 in GovCloud) whatever the cluster
+              # region; without it *.apps is never created (lab 2026-11-10: 384 blocked calls).
+              # The ingress operator finds the private hosted zone through the Resource Groups Tagging
+              # API, whose endpoint for the global Route 53 service is us-east-1 (us-gov-west-1 in
+              # GovCloud) whatever the cluster region; without it *.apps is never created (lab
+              # 2026-11-10: 384 blocked calls, install timed out on ingress/auth/console).
               printf '%s\n' \
                 '.${AWS::Region}.${AWS::URLSuffix}' \
                 'iam.${AWS::URLSuffix}' 'route53.${AWS::URLSuffix}' 'sts.${AWS::URLSuffix}' \
                 's3.${AWS::URLSuffix}' 'awscli.amazonaws.com' \
                 'iam.us-gov.amazonaws.com' 'route53.us-gov.amazonaws.com' \
+                'tagging.us-east-1.${AWS::URLSuffix}' 'tagging.us-gov-west-1.amazonaws.com' \
                 '.ce.redhat.com' > /etc/squid/whitelist.txt
             else
               printf '%s\n' '.${AWS::URLSuffix}' '.cloudfront.net' '.ce.redhat.com' '.opentlc.com' \
