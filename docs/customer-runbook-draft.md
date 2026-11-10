@@ -66,6 +66,12 @@ groups) has no IPI workaround yet.
   within minutes, and `openshift-install wait-for install-complete` then succeeded. Minimum allowlist we validated
   for a region-restricted design (commercial, us-east-2): `*.us-east-2.amazonaws.com`, `iam.amazonaws.com`,
   `route53.amazonaws.com`, `sts.amazonaws.com`, `s3.amazonaws.com`, `tagging.us-east-1.amazonaws.com`.
+  Per partition (from the ingress operator code, release-5.0 `pkg/dns/aws/dns.go`; only commercial is lab-tested):
+  commercial `tagging.us-east-1`; **GovCloud `tagging.us-gov-west-1` even for clusters in us-gov-east-1**; China
+  `tagging.cn-northwest-1`; **ISO / ISO-B: not needed** (no tagging client there; zones are listed through Route 53).
+  Setting the private zone by ID does **not** avoid it: the operator's start-up check calls `tag:GetResources`
+  outside ISO and does not create the DNS provider if that fails. A VPC-endpoint-only design must therefore also
+  reach the tagging endpoint in that region (and Route 53), not only EC2, ELB and S3.
 
 Sizes that worked (Lab-validated): mirror host m6i.2xlarge (t3.large was too small to run oc-mirror and the
 installer's local control plane), registry m6i.xlarge with 300 GB disk (a 5.0.0 platform mirror is about 23 GB in
