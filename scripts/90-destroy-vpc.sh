@@ -29,8 +29,24 @@ start_logging "destroy-vpc" "${BASH_SOURCE[0]}" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"
 # shellcheck disable=SC1091
 . "${ROOT}/secrets/aws.env"
 
+# Resources 10-deploy-vpc.sh creates outside the stack; removed even when the stack is gone.
+cleanup_outside_stack() {
+    # The template bucket is created by 10-deploy-vpc.sh outside the stack (templates > 51,200 bytes).
+    cfn_bucket="${VPC_STACK_NAME}-cfn-$(aws sts get-caller-identity --query Account --output text)-${AWS_DEFAULT_REGION}"
+    if aws s3api head-bucket --bucket "$cfn_bucket" 2>/dev/null; then
+        aws s3 rm --recursive --quiet "s3://${cfn_bucket}" && aws s3api delete-bucket --bucket "$cfn_bucket" \
+            && echo "==> Deleted template bucket ${cfn_bucket}"
+    fi
+    # The pull secret parameter is created by 10-deploy-vpc.sh outside the stack (CF-9).
+    if aws ssm delete-parameter --name "$PULL_SECRET_SSM_NAME" 2>/dev/null; then
+        echo "==> Deleted SSM parameter ${PULL_SECRET_SSM_NAME}"
+    fi
+}
+
 if ! aws cloudformation describe-stacks --stack-name "$VPC_STACK_NAME" >/dev/null 2>&1; then
-    echo "==> Stack ${VPC_STACK_NAME} does not exist; nothing to do"; exit 0
+    echo "==> Stack ${VPC_STACK_NAME} does not exist"
+    cleanup_outside_stack
+    exit 0
 fi
 
 if [ "$YES" -ne 1 ]; then
@@ -60,8 +76,5 @@ if [ -n "$extra" ]; then
 fi
 aws cloudformation delete-stack --stack-name "$VPC_STACK_NAME"
 aws cloudformation wait stack-delete-complete --stack-name "$VPC_STACK_NAME"
-# The pull secret parameter is created by 10-deploy-vpc.sh outside the stack (CF-9).
-if aws ssm delete-parameter --name "$PULL_SECRET_SSM_NAME" 2>/dev/null; then
-    echo "==> Deleted SSM parameter ${PULL_SECRET_SSM_NAME}"
-fi
+cleanup_outside_stack
 echo "==> Deleted"

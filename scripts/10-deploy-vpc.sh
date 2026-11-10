@@ -148,8 +148,38 @@ if [ -z "${ALLOWED_SSH_CIDR:-}" ]; then
     ALLOWED_SSH_CIDR="${my_ip}/32"
 fi
 
-echo "==> Validating template"
-aws cloudformation validate-template --template-body "file://${VPC_TEMPLATE}" >/dev/null
+# CloudFormation accepts at most 51,200 bytes inline (--template-body). The template is
+# larger (fapolicyd block per node, B-5), so it goes through a private S3 bucket
+# (--template-url, up to 1 MB). The bucket is created on the real run only and deleted by
+# 90-destroy-vpc.sh. Dry run: local cfn-lint instead of the server-side validation.
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+CFN_BUCKET="${VPC_STACK_NAME}-cfn-${ACCOUNT_ID}-${REGION}"
+TEMPLATE_URL="https://${CFN_BUCKET}.s3.${REGION}.amazonaws.com/disconnected_vpc_plus.yaml"
+upload_template() {
+    if ! aws s3api head-bucket --bucket "$CFN_BUCKET" 2>/dev/null; then
+        echo "==> Creating private template bucket ${CFN_BUCKET}"
+        if [ "$REGION" = us-east-1 ]; then aws s3api create-bucket --bucket "$CFN_BUCKET" >/dev/null
+        else aws s3api create-bucket --bucket "$CFN_BUCKET" --create-bucket-configuration "LocationConstraint=${REGION}" >/dev/null; fi
+        aws s3api put-public-access-block --bucket "$CFN_BUCKET" --public-access-block-configuration \
+            BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+        aws s3api put-bucket-tagging --bucket "$CFN_BUCKET" --tagging "TagSet=[{Key=Project,Value=openshift5-disconnected}]"
+    fi
+    aws s3 cp --quiet "$VPC_TEMPLATE" "s3://${CFN_BUCKET}/disconnected_vpc_plus.yaml"
+}
+if [ "$(wc -c < "$VPC_TEMPLATE")" -le 51200 ]; then
+    echo "==> Validating template"
+    aws cloudformation validate-template --template-body "file://${VPC_TEMPLATE}" >/dev/null
+    TEMPLATE_ARG=(--template-body "file://${VPC_TEMPLATE}")
+elif [ "$DRY_RUN" -eq 1 ]; then
+    echo "==> Template is $(wc -c < "$VPC_TEMPLATE") bytes (> 51,200): the real run uploads it to s3://${CFN_BUCKET}/"
+    if command -v cfn-lint >/dev/null; then cfn-lint "$VPC_TEMPLATE" && echo "    cfn-lint: clean"; else echo "    (cfn-lint not installed; server-side validation runs on the real run)"; fi
+    TEMPLATE_ARG=(--template-url "$TEMPLATE_URL")
+else
+    upload_template
+    echo "==> Validating template (${TEMPLATE_URL})"
+    aws cloudformation validate-template --template-url "$TEMPLATE_URL" >/dev/null
+    TEMPLATE_ARG=(--template-url "$TEMPLATE_URL")
+fi
 
 # --- parameters ---------------------------------------------------------------
 # Passed as a JSON file, not "ParameterKey=...,ParameterValue=..." shorthand: the
@@ -241,7 +271,7 @@ else
     echo "==> Creating stack ${VPC_STACK_NAME}"
     aws cloudformation create-stack \
         --stack-name "$VPC_STACK_NAME" \
-        --template-body "file://${VPC_TEMPLATE}" \
+        "${TEMPLATE_ARG[@]}" \
         --parameters "file://${PARAMS_FILE}" \
         --capabilities CAPABILITY_IAM \
         --tags "Key=Project,Value=openshift5-disconnected" \
