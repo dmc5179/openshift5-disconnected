@@ -45,7 +45,7 @@ ocx() { install_ssh "export KUBECONFIG=~/${RDIR}/auth/kubeconfig; $*"; }
 # to the first redhat-operator-index object. Usage: index_name catalogsource|clustercatalog
 index_name() {
     ocx "v=\$(oc get clusterversion version -o jsonpath='{.status.desired.version}' | cut -d. -f1,2 | tr . -)
-         all=\$(oc get $1 ${1/catalogsource/-n openshift-marketplace} -o name 2>/dev/null | sed 's|.*/||' | grep redhat-operator-index)
+         all=\$(oc get $1 $([ "$1" = catalogsource ] && echo "-n openshift-marketplace") -o name 2>/dev/null | sed 's|.*/||' | grep redhat-operator-index)
          echo \"\$all\" | grep -m1 -- \"-v\$v\\\$\" || echo \"\$all\" | head -1"
 }
 
@@ -173,12 +173,34 @@ do_operators() {
     ocx "for i in \$(seq 1 90); do
              s=\$(oc get clustercatalog ${cc} -o jsonpath='{.status.conditions[?(@.type==\"Serving\")].status}');
              [ \"\$s\" = True ] && { echo \"    ClusterCatalog ${cc} serving\"; break; }; sleep 10; done"
-    # OLM v1 in 5.0 ignores spec.serviceAccount (deprecated), so none is created.
+    # OLM v1 on 4.x REQUIRES spec.serviceAccount (lab 2026-11-10, 4.22.22: "spec.serviceAccount:
+    # Required value"); 5.0 accepts it but ignores it (deprecated). So always create a dedicated
+    # installer service account. cluster-admin is the lab shortcut; scope it down for customers
+    # (the OLM v1 docs list the per-bundle permissions).
     ocx "oc apply -f - <<EOF
 apiVersion: v1
 kind: Namespace
 metadata:
   name: cert-manager-operator
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-manager-installer
+  namespace: cert-manager-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-manager-installer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: cert-manager-installer
+  namespace: cert-manager-operator
 ---
 apiVersion: olm.operatorframework.io/v1
 kind: ClusterExtension
@@ -186,6 +208,8 @@ metadata:
   name: openshift-cert-manager-operator
 spec:
   namespace: cert-manager-operator
+  serviceAccount:
+    name: cert-manager-installer
   source:
     sourceType: Catalog
     catalog:
