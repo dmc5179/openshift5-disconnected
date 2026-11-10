@@ -57,6 +57,15 @@ groups) has no IPI workaround yet.
 - **AWS APIs**: the cluster and the installer need EC2, ELB, Route 53, S3, IAM, STS and tagging. In our lab they
   went through the proxy's allowlist. In a true air gap use VPC endpoints or the partition's private endpoints.
   Untested without any proxy.
+- **Allow the Route 53 tagging endpoint in us-east-1, whatever your cluster region** (Lab-validated failure, 2026-11-10).
+  The ingress operator finds the cluster's private hosted zone through the Resource Groups Tagging API, and for
+  the global Route 53 service that endpoint is `tagging.us-east-1.amazonaws.com` (GovCloud:
+  `tagging.us-gov-west-1.amazonaws.com`). An allowlist or VPC-endpoint design that only permits the cluster's own
+  region blocks it: the install times out with the ingress operator Degraded (`DNSReady=False`, reason `NoZones`),
+  no `*.apps` record, and the authentication and console operators unavailable. Allowing the endpoint fixed it
+  within minutes, and `openshift-install wait-for install-complete` then succeeded. Minimum allowlist we validated
+  for a region-restricted design (commercial, us-east-2): `*.us-east-2.amazonaws.com`, `iam.amazonaws.com`,
+  `route53.amazonaws.com`, `sts.amazonaws.com`, `s3.amazonaws.com`, `tagging.us-east-1.amazonaws.com`.
 
 Sizes that worked (Lab-validated): mirror host m6i.2xlarge (t3.large was too small to run oc-mirror and the
 installer's local control plane), registry m6i.xlarge with 300 GB disk (a 5.0.0 platform mirror is about 23 GB in
@@ -691,7 +700,9 @@ Until the upstream points at the local service, the cluster version operator cal
 - OLM v0 (Subscription to the mirrored CatalogSource): Lab-validated (update service, lightspeed-operator).
 - OLM v1 (ClusterExtension from the mirrored ClusterCatalog): Lab-validated with cert-manager 1.20.1. Wait until the
   ClusterCatalog reports `Serving=True` (about 10 minutes the first time) before creating the ClusterExtension.
-  `spec.serviceAccount` is deprecated and ignored in 5.0.
+  `spec.serviceAccount` is deprecated and ignored in 5.0, but **required on 4.x** (Lab-validated on 4.22.22: "spec.serviceAccount:
+  Required value"). If you install OLM v1 operators on 4.22 before upgrading, create an installer service account with the
+  permissions the bundle needs and reference it; it does no harm after the upgrade to 5.0.
 
 ```bash
 oc get clustercatalog
@@ -704,9 +715,24 @@ ask Red Hat for a statement if that matters to you.
 
 ### 10.4 Manual (STS) clusters and upgrades
 
-After install the cloud-credential operator reports `Upgradeable=False` until the
-`cloudcredential.openshift.io/upgradeable-to` annotation is set. This is expected for Manual mode. Lab-validated
-(seen); the upgrade procedure itself is Documented only (OpenShift 4.x Manual mode procedure).
+After install the cloud-credential operator reports `Upgradeable=False` (`MissingUpgradeableAnnotation`) until the
+`cloudcredential.openshift.io/upgradeable-to` annotation is set. This is expected for Manual mode. Before a minor or
+major update (Lab-validated for 4.22.22 -> 5.0.1, 2026-11-10):
+
+```bash
+# on a connected host, with the TARGET release's tools
+oc adm release extract --credentials-requests --included --install-config install-config.yaml \
+    --to credrequests-<target> quay.io/openshift-release-dev/ocp-release:<target>-x86_64
+ccoctl aws create-iam-roles --name <ccoctl-name> --region <region> \
+    --credentials-requests-dir credrequests-<target> \
+    --identity-provider-arn arn:<partition>:iam::<account>:oidc-provider/<issuer-host> --output-dir out-<target>
+# on the cluster
+oc apply -f out-<target>/manifests/
+oc annotate cloudcredential.operator.openshift.io/cluster \
+    cloudcredential.openshift.io/upgradeable-to=<target> --overwrite
+```
+
+Reuse the existing OIDC provider (`create-iam-roles`, not `create-all`).
 
 ## 11. Keeping AI features off
 
@@ -756,6 +782,12 @@ and LLM egress (block it at the firewall). A cluster-admin can delete the policy
 restrict who can delete ValidatingAdmissionPolicies.
 
 ## 12. Expected blocked egress after install
+
+- **data.iana.org once a day at 00:00 UTC from every node:** `unbound-anchor.timer` (DNSSEC root trust anchor refresh,
+  `OnCalendar=daily`, `Persistent=true`) is on RHCOS 9.8 and RHCOS 10.2 nodes (Lab: timer seen on 4.22.22 nodes; calls seen on
+  5.0.0 nodes). Harmless when blocked. To stop it, mask `unbound-anchor.timer` with a MachineConfig per pool (our lab generator:
+  `DISABLE_UNBOUND_ANCHOR=true`; Untested end to end).
+
 
 With everything above in place, a healthy disconnected 5.0 cluster still tries these destinations. All are blocked
 harmlessly; **do not open firewall exceptions**. Lab-validated by packet capture and proxy logs.
