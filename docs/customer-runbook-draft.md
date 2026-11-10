@@ -726,12 +726,12 @@ AgenticRun, LLMProvider, ...); Subscriptions and ClusterExtensions for `lightspe
 `LightspeedButton` back on or adding the Lightspeed console plug-ins; creating the two Lightspeed ConsolePlugins.
 Members of the group `ai-opt-out-break-glass` bypass it. One exception is allowed on purpose: creating
 `AgenticOLSConfig cluster` with `spec.suspended: true`, which is the vendor's kill switch for the agentic layer
-(Untested in the lab).
+(the CRD and the `spec.suspended` field, "halts all agentic operations cluster-wide", are confirmed on lightspeed-operator 2.0.0; creating it through the admission policy is not yet tested).
 
 If lightspeed-operator is installed anyway, also turn the kill switch on:
 
 ```yaml
-apiVersion: ols.openshift.io/v1alpha1   # check: oc api-resources | grep -i agenticolsconfig
+apiVersion: agentic.openshift.io/v1alpha1   # cluster-scoped; CRD agenticolsconfigs.agentic.openshift.io (lightspeed-operator 2.0.0)
 kind: AgenticOLSConfig
 metadata:
   name: cluster
