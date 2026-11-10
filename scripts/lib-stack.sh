@@ -26,7 +26,12 @@ stack_ready() {
               --query 'Stacks[0].StackStatus' --output text 2>/dev/null)" \
         || { echo "Error: stack ${VPC_STACK_NAME} does not exist; run scripts/10-deploy-vpc.sh." >&2; return 1; }
     case "$status" in CREATE_COMPLETE|UPDATE_COMPLETE) ;; *) echo "Error: stack is ${status}." >&2; return 1 ;; esac
-    BASTION_IP="$(stack_output BastionPublicIp)"
+    # Live public IP: the bastion has no Elastic IP, so a stop/start (scripts/70-power.sh)
+    # changes it while the stack output keeps the creation-time address.
+    BASTION_IP="$(aws ec2 describe-instances --filters "Name=tag:aws:cloudformation:stack-name,Values=${VPC_STACK_NAME}" \
+        "Name=tag:aws:cloudformation:logical-id,Values=HelperInstance" "Name=instance-state-name,Values=running" \
+        --query 'Reservations[0].Instances[0].PublicIpAddress' --output text 2>/dev/null)"
+    case "$BASTION_IP" in ''|None) BASTION_IP="$(stack_output BastionPublicIp)" ;; esac
     REGISTRY_HOST="$(stack_output RegistryPrivateDnsName)"
     REGISTRY_IP="$(stack_output RegistryPrivateIp)"
     [ -f "${SSH_PRIVATE_KEY:-}" ] || { echo "Error: SSH_PRIVATE_KEY not found: ${SSH_PRIVATE_KEY:-unset}" >&2; return 1; }
