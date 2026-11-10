@@ -49,7 +49,7 @@
 #                          4.22), install lightspeed-operator etc. from the v4.22 catalog
 #                          (MIRROR_UPGRADE_FROM_OPERATORS), then the upgrade phase
 #   UPGRADE_TIMEOUT_MIN    upgrade phase wait (default 180)
-#   MIRROR_UPGRADE_FROM    4.22.z start of the mirrored upgrade path (default 4.22.18)
+#   MIRROR_UPGRADE_FROM    4.22.z start of the mirrored upgrade path (default 4.22.22)
 #   MIRROR_TEST_OPERATORS  operators to mirror (default: OSUS, cert-manager, lightspeed)
 #   MIRROR_KUBEVIRT        cluster.env (default true): kubeVirtContainer in the ISC
 #   EGRESS_CVO_CUTOFF      epoch seconds; api.openshift.com from the cluster before it
@@ -86,7 +86,7 @@ case "$TEST_INSTALL_HOST" in registry|bastion|rhel10) ;; *) echo "TEST_INSTALL_H
 for p in "$FROM" ${ONLY:+"$ONLY"}; do
     [[ " ${PHASES[*]} " == *" $p "* ]] || { echo "Unknown phase '$p' (phases: ${PHASES[*]})." >&2; exit 2; }
 done
-export MIRROR_UPGRADE_FROM="${MIRROR_UPGRADE_FROM:-4.22.18}"
+export MIRROR_UPGRADE_FROM="${MIRROR_UPGRADE_FROM:-4.22.22}"
 export MIRROR_TEST_OPERATORS="${MIRROR_TEST_OPERATORS:-cincinnati-operator:v1,openshift-cert-manager-operator:stable-v1,lightspeed-operator:stable}"
 export TEST_SCENARIO="${TEST_SCENARIO:-install}"
 case "$TEST_SCENARIO" in install|upgrade) ;; *) echo "TEST_SCENARIO must be install or upgrade." >&2; exit 2 ;; esac
