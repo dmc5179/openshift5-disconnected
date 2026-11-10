@@ -740,6 +740,21 @@ oc annotate cloudcredential.operator.openshift.io/cluster \
 
 Reuse the existing OIDC provider (`create-iam-roles`, not `create-all`).
 
+**Known issue on AWS STS clusters (5.0, Lab-validated 2026-11-10):** the machine-config operator's boot image
+controller can't read STS credentials, so machine-config goes `Degraded` with "aws-cloud-credentials secret contains
+neither static credentials ... nor STS credentials" and reports `Upgradeable=False` (`ClusterBootImageSkewError`),
+which blocks the next update. Workaround: take over boot image management. Run the two patches in this order:
+
+```bash
+oc patch machineconfiguration cluster --type merge -p \
+  '{"spec":{"bootImageSkewEnforcement":{"mode":"Manual","manual":{"mode":"OCPVersion","ocpVersion":"<version your boot images come from>"}}}}'
+# wait until: oc get machineconfiguration cluster -o jsonpath='{.status.bootImageSkewEnforcementStatus.mode}'  ->  Manual
+oc patch machineconfiguration cluster --type merge -p \
+  '{"spec":{"managedBootImages":{"machineManagers":[{"resource":"machinesets","apiGroup":"machine.openshift.io","selection":{"mode":"None"}}]}}}'
+```
+
+You then update MachineSet boot images (AMIs) yourself and keep the Manual skew version current.
+
 ## 11. Keeping AI features off
 
 OpenShift 5.0 has no install-config switch for AI. The AI features need the OpenShift Lightspeed operator (an OLM
