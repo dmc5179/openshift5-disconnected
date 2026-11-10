@@ -30,13 +30,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ACTION="${1:-all}"
+# Before cluster.env, which defaults INSTALL_HOST to bastion (no kubeconfig there).
+export INSTALL_HOST="${INSTALL_HOST:-registry}"
 # shellcheck source=../cluster.env
 . "${ROOT}/cluster.env"
 # shellcheck disable=SC1091
 . "${ROOT}/secrets/aws.env"
 . "${ROOT}/scripts/lib-stack.sh"
 stack_ready
-export INSTALL_HOST="${INSTALL_HOST:-registry}"
 
 RDIR="ocp-install/${CLUSTER_NAME}"
 ocx() { install_ssh "export KUBECONFIG=~/${RDIR}/auth/kubeconfig; $*"; }
