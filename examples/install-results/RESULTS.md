@@ -146,6 +146,31 @@ console telemetry annotations.
 - **The 2 unexpected attempts** were registry.redhat.io from one worker at 05:23:01-16. An OLM bundle-unpack pod pulled the update-service bundle about a minute after the operator IDMS was applied, before the MachineConfig rollout had put the mirror mapping on that node. It succeeded through the mirror 30 s later.
 - **Fix:** `45-post-install.sh` now waits for the MachineConfigPools after applying mirror resources (768ee98).
 
+## Upgrade test: 4.22.22 -> 5.0.1, disconnected, FIPS, Manual STS (2026-11-10)
+New AWS account (commercial, us-east-2). `TEST_SCENARIO=upgrade scripts/50-rebuild-and-test.sh`. Squid egress
+profile `regional`. Install host: the air-gapped FIPS RHEL 9.8 registry node, `openshift-install-fips` 4.22.22
+extracted from the mirror. Mirror: one `fast-5.0` channel, 4.22.22 -> 5.0.1, operators from both the v4.22 and
+v5.0 catalogs. [LAB]
+
+| Step | Result |
+|---|---|
+| Stack deploy | OK, 21 min. Template (62 KB) uploaded to S3 and passed by URL (over CloudFormation's 51,200-byte inline limit) |
+| Validate | OK. **Pull secret via SSM (CF-9) validated**; regional egress probes OK |
+| Mirror | OK, 26 min. Catalogs v4-22 + v5-0. N-11 (OCPBUGS-138157) reproduces on 5.0.1 |
+| Install 4.22.22 | **Timed out at 13:53Z**: ingress `DNSReady=False` (`NoZones`), no `*.apps`, authentication/console unavailable. Cause: Squid blocked 384 calls to `tagging.us-east-1.amazonaws.com` (Route 53 zone lookup by tags). Allowed it: record created 14:19:41Z, `wait-for install-complete` OK, 32/32 operators |
+| Post-install | Mirror config rolled out; OSUS from the v4.22 catalog; CVO upstream -> local OSUS, `RetrievedUpdates=True`, **5.0.1 offered as a recommended update**. cert-manager 1.20.1 via OLM v1 (needed `spec.serviceAccount` on 4.22); lightspeed-operator 2.0.0 via OLM v0 |
+| Checks (4.22) | crun on all nodes, no runC override MCs (installed after 4.18). `unbound-anchor.timer` daily at 00:00 UTC on RHCOS 9.8 (N-12). LightspeedButton Disabled, no Lightspeed plugin, 0 OLSConfig/AgenticOLSConfig |
+| Manual-mode credentials | cloud-credential `Upgradeable=False` (`MissingUpgradeableAnnotation`) as expected. `20-prepare-sts.sh --upgrade-to 5.0.1` (5.0.1 CredentialsRequests, `ccoctl aws create-iam-roles` against the existing OIDC provider), secrets applied, `upgradeable-to=5.0.1` annotation. No admin-ack gates |
+| Upgrade | `oc adm upgrade --to=5.0.1` through the local OSUS: **Completed in 64 min**, history `5.0.1 Completed verified=true` (signature verified from the mirror, J8), 32/32 operators, 0 image pull failures. Nodes stay on **RHCOS 9.8** (`osimagestream rhel-9`) |
+| AI after upgrade (J5) | lightspeed-operator 2.0.0 installed, no OLSConfig: **no AI Hub / Lightspeed console plugin appeared**; LightspeedButton still Disabled. New core plugin `cluster-update-console-plugin` ("Cluster Updates", payload, owned by the console operator) |
+| AI opt-out policy (A5) | Applied (left installed). Kill-switch exception: `AgenticOLSConfig` `suspended: true` ALLOWED, `suspended: false` DENIED (server dry runs). `AgenticOLSConfig` is `agentic.openshift.io/v1alpha1`, cluster-scoped |
+| Add-nodes (I4) | Not testable on AWS: `oc adm node-image create` supports only baremetal, vsphere, nutanix, none, external |
+| Egress audit | FAIL: tagging.us-east-1 x384 (fixed during the run) and **registry.redhat.io x342 from the masters = catalogd pulling the default OLM v1 ClusterCatalogs**. On this 4.22 install cluster-olm-operator created them during bootstrap before the day-0 `Unavailable` manifests applied (field never set), and after the upgrade they point at `:v5.0`. Day-2 `oc patch ... availabilityMode: Unavailable`: 0 calls in the next 4 min. Now applied by 45-post-install (resources) and after the upgrade |
+
+Script fixes from this run: deploy via S3 template URL; destroy cleans the template bucket and SSM parameter;
+regional profile allows the tagging endpoint; 45-post-install ClusterCatalog lookup and ClusterExtension service
+account; day-2 default-catalog patch; 60-post-upgrade-tests.sh install-host default.
+
 ## Reproduce
 
 ```bash
