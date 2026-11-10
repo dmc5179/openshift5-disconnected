@@ -4,7 +4,7 @@
 #                      N-4, A2). Runs oc on the install host, which holds the
 #                      kubeconfig and can reach the private API.
 #
-# Usage: scripts/45-post-install.sh [resources|cleanup|osus|operators|status|all]
+# Usage: scripts/45-post-install.sh [resources|cleanup|catalogs|osus|operators|status|all]
 #
 #   resources  copy oc-mirror's working-dir/cluster-resources from the bastion and
 #              apply IDMS/ITMS, the mirrored CatalogSource and ClusterCatalog, and
@@ -61,6 +61,21 @@ do_resources() {
              case \"\$f\" in *.yaml|*.yml|*.json) oc apply -f \"\$f\" | sed 's/^/    /' ;; esac
          done"
     wait_mcp_rollout "$before"
+    disable_default_clustercatalogs
+}
+
+# The day-0 ClusterCatalog manifests (generate-install-config.sh) are not reliable: on a
+# 4.22.22 install, cluster-olm-operator created the default catalogs during bootstrap
+# before the manifests were applied, so availabilityMode stayed unset (= Available) and
+# catalogd kept pulling registry.redhat.io (342 blocked calls, lab 2026-11-10); after the
+# upgrade the refs moved to :v5.0 and the pulls continued. The documented day-2 patch
+# (olmv1-disabling-a-default-catalog) works and survives the upgrade, so always apply it.
+disable_default_clustercatalogs() {
+    [ "${DISABLE_DEFAULT_CATALOGS:-false}" = "true" ] || return 0
+    echo "==> Default OLM v1 ClusterCatalogs -> availabilityMode Unavailable (day 2)"
+    ocx "for c in \$(oc get clustercatalog -o name | grep -E '/openshift-(redhat|certified|community)-operators\$'); do
+             oc patch \$c --type merge -p '{\"spec\":{\"availabilityMode\":\"Unavailable\"}}' | sed 's/^/    /'
+         done"
 }
 
 # wait_mcp_rollout <pool target configs before a change>
@@ -270,6 +285,7 @@ do_status() {
 case "$ACTION" in
     resources) do_resources ;;
     cleanup)   do_cleanup ;;
+    catalogs)  disable_default_clustercatalogs ;;
     osus)      do_osus ;;
     operators) do_operators ;;
     status)    do_status ;;

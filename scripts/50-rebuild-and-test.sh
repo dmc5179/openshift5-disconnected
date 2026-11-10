@@ -353,6 +353,8 @@ phase_upgrade() {
     ocx "oc get clusterversion version -o jsonpath='{.status.history[0].verified}'" | grep -q true \
         || { echo "Error: the ${OCP_VERSION} release was not signature-verified (history[0].verified != true)." >&2; return 1; }
     echo "    ${OCP_VERSION} release signature verified (J8)"
+    # After the upgrade the default ClusterCatalogs point at :<new version>; keep them disabled.
+    INSTALL_HOST="$TEST_INSTALL_HOST" "${ROOT}/scripts/45-post-install.sh" catalogs
 }
 
 phase_audit() {
