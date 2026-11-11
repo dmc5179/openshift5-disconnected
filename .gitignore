@@ -33,3 +33,6 @@
 
 # Tool binaries fetched by scripts (ccoctl, oc) - release-matched, large.
 /bin/
+
+# Locally saved copies of published Red Hat docs (HTML/PDF), not ours to commit
+docs-cache/
