@@ -909,8 +909,35 @@ Resources:
               exit 1
             }
 
-            # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
-            dnf update -y
+            # Image mode (bootc) RHEL 10, e.g. the FIPS bastion AMI from the image builder (AGENTS.md B-3).
+            # /usr is read-only and the image is unregistered (no repos), so no dnf here: packages and
+            # updates come from the image (rebuild it, or bootc upgrade/switch by hand). /usr/local and
+            # /opt must be links into /var (true for the 2026-11-04 aws-fips-bastion image; the RHEL 10.2
+            # bootc base image default leaves them read-only, KB 7137990).
+            IMAGE_MODE=false
+            [ -e /run/ostree-booted ] && IMAGE_MODE=true
+            if [ "$IMAGE_MODE" = true ]; then
+              echo "Image-mode host: $(bootc status --format humanreadable 2>/dev/null | grep -m1 -i 'image' || echo bootc)"
+              touch /usr/local/bin/.writable 2>/dev/null && rm -f /usr/local/bin/.writable \
+                || fail "image mode: /usr/local is read-only; the bastion image must link /usr/local to /var/usrlocal"
+              # The image's cloud-init user is cloud-user; the lab scripts ssh as ec2-user. Create ec2-user
+              # with the launch key pair and passwordless sudo, like the RHEL cloud images.
+              if ! id ec2-user >/dev/null 2>&1; then
+                useradd -m -G wheel ec2-user || fail "create ec2-user"
+                install -d -m 700 -o ec2-user -g ec2-user ~ec2-user/.ssh
+                # The launch key pair from instance metadata (IMDSv2; HttpTokens=required).
+                t=$(curl -fsS -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' http://169.254.169.254/latest/api/token)
+                curl -fsS -H "X-aws-ec2-metadata-token: $t" http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key \
+                  > ~ec2-user/.ssh/authorized_keys || fail "read the launch key pair from instance metadata"
+                [ -s ~ec2-user/.ssh/authorized_keys ] || fail "no launch key pair found for ec2-user"
+                chown ec2-user:ec2-user ~ec2-user/.ssh/authorized_keys; chmod 600 ~ec2-user/.ssh/authorized_keys
+                echo 'ec2-user ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/90-ec2-user; chmod 440 /etc/sudoers.d/90-ec2-user
+                restorecon -R ~ec2-user/.ssh
+              fi
+            else
+              # Full update, not --security (CF-22: mixed-release SELinux policy breaks podman).
+              dnf update -y
+            fi
             # fapolicyd (AGENTS.md B-5, examples/fapolicyd/RESULTS.md). FapolicydMode:
             #   enforce-with-trust  install fapolicyd if missing, enable it enforcing, add the crun rule
             #                       (rootful podman / mirror-registry), integrity sha256, an audit rule so
@@ -925,7 +952,10 @@ Resources:
                   systemctl mask fapolicyd || true
                 fi ;;
               enforce-with-trust)
-                rpm -q fapolicyd >/dev/null 2>&1 || dnf install -y fapolicyd || fail "install fapolicyd"
+                if ! rpm -q fapolicyd >/dev/null 2>&1; then
+                  [ "$IMAGE_MODE" = true ] && fail "image mode: fapolicyd is not in the image (no dnf); bake it in or use FapolicydMode disable"
+                  dnf install -y fapolicyd || fail "install fapolicyd"
+                fi
                 # crun re-executes itself from a memfd (exe=/); the default ld_so pattern rule then denies its
                 # library loads and every rootful podman run fails with "OCI permission denied". Must sort
                 # before 30-patterns.rules; exe=/usr/bin/crun does not match (tested).
@@ -961,17 +991,23 @@ Resources:
             }
             fapolicyd_prepare
 
-            # DNF install loop due to slow uptime for NAT gateway
-            MAX_ATTEMPTS=10
-            attempt_num=1
-            until [ $attempt_num -gt $MAX_ATTEMPTS ] || \
-                  sudo dnf install -y wget vim podman unzip jq tmux net-tools &> /dev/null; do
-                
-                echo "Attempt $attempt_num failed. Trying again in 10 seconds..."
-                sleep 10
-                ((attempt_num++))
-            done
-            [ $attempt_num -le $MAX_ATTEMPTS ] || fail "dnf install of the base packages"
+            if [ "$IMAGE_MODE" = true ]; then
+              # Nothing can be installed: check that the image carries what this script and the lab need.
+              missing=""
+              for c in wget unzip jq podman skopeo tmux tar curl; do command -v $c >/dev/null || missing="$missing $c"; done
+              [ -z "$missing" ] || fail "image mode: missing from the image:$missing"
+            else
+              # DNF install loop due to slow uptime for NAT gateway
+              MAX_ATTEMPTS=10
+              attempt_num=1
+              until [ $attempt_num -gt $MAX_ATTEMPTS ] || \
+                    sudo dnf install -y wget vim podman unzip jq tmux net-tools &> /dev/null; do
+                  echo "Attempt $attempt_num failed. Trying again in 10 seconds..."
+                  sleep 10
+                  ((attempt_num++))
+              done
+              [ $attempt_num -le $MAX_ATTEMPTS ] || fail "dnf install of the base packages"
+            fi
 
             cd /tmp
 
@@ -988,9 +1024,11 @@ Resources:
             
             wget -q https://developers.redhat.com/content-gateway/file/pub/cgw/mirror-registry/2.0.9/mirror-registry-amd64.tar.gz || fail "download mirror-registry"
 
+            # AWS CLI v2 under /usr/local (also on image mode, where /usr/local is in /var; the image's own
+            # /usr/bin/aws stays as it is). The rest of this script uses /usr/local/bin/aws.
             curl -fsS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" || fail "download AWS CLI"
             unzip -q awscliv2.zip || fail "unzip AWS CLI"
-            ./aws/install || fail "install AWS CLI"
+            ./aws/install --update || fail "install AWS CLI"
             fapolicyd_trust
 
             # Pull secret (CF-9): from SSM Parameter Store when PullSecretSsmParameter is set, so it is not
@@ -1019,7 +1057,7 @@ Resources:
             rm -f README.md
 
             sudo mv oc openshift-install-fips kubectl oc-mirror ccoctl /usr/local/bin || fail "install the OpenShift CLIs"
-            sudo chown root.root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
+            sudo chown root:root /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo chmod 0755 /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo restorecon -v /usr/local/bin/oc /usr/local/bin/kubectl /usr/local/bin/openshift-install-fips /usr/local/bin/oc-mirror /usr/local/bin/ccoctl
             sudo ln -sf /usr/local/bin/openshift-install-fips /usr/local/bin/openshift-install
