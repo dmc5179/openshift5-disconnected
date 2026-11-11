@@ -1,0 +1,2 @@
+# Let sudo find tools installed into /usr/local
+Defaults    secure_path = /usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin

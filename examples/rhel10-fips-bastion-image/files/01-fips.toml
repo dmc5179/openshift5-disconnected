@@ -1,0 +1,2 @@
+# Enable FIPS mode from first boot
+kargs = ["fips=1"]

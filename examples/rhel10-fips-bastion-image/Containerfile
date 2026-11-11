@@ -1,0 +1,66 @@
+# RHEL 10 FIPS image-mode (bootc) install host for disconnected OpenShift on AWS.
+#
+# Build on a registered RHEL 10 host as root (see README.md). Podman passes the host's
+# subscription into the build, so dnf can install RHEL packages.
+#
+# Pin the RHEL minor release. rhel-bootc:latest follows the newest minor release.
+FROM registry.redhat.io/rhel10/rhel-bootc:10.2
+
+# Packages:
+# - cloud-init: EC2 provisioning (hostname, cloud-user, SSH key pair from instance metadata)
+# - crypto-policies-scripts: provides update-crypto-policies (not installed by default on RHEL 10)
+# - nmstate: nmstatectl, needed by `openshift-install agent create image` when agent-config sets networkConfig
+# - acl: needed by mirror-registry on RHEL 10
+# - podman, skopeo, jq, rhc: already in the base image today; listed so a base change can't drop them
+# After installing, remove dnf/RHSM state and install-time leftovers (/run/cloud-init from the
+# cloud-init scriptlets, /var/roothome/.viminfo from vim) so `bootc container lint` stays clean:
+# /run is runtime-only, and /var is only populated at install time on image-mode systems.
+RUN dnf -y install \
+        cloud-init crypto-policies-scripts \
+        wget unzip nmstate xorriso tmux vim-enhanced git python3-pip awscli2 bash-completion \
+        acl podman skopeo jq rhc && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf /var/lib/dnf /var/log/dnf*.log /var/log/hawkey.log \
+           /var/log/rhsm /var/lib/rhsm/cache /var/cache/ldconfig/aux-cache \
+           /var/roothome/.viminfo /run/cloud-init
+
+# FIPS (RHEL 10 "Using image mode for RHEL", chapter 11). RHEL 10 has no fips-mode-setup and
+# can't switch to FIPS after installation, so it must be built into the image:
+# - fips=1 kernel argument, applied at install/first boot from kargs.d
+COPY files/01-fips.toml /usr/lib/bootc/kargs.d/01-fips.toml
+# - system-wide FIPS crypto policy
+RUN update-crypto-policies --no-reload --set FIPS
+
+# EC2 kernel arguments: serial console, and no NVMe I/O timeout (EBS volumes are NVMe on Nitro)
+COPY files/10-aws.toml /usr/lib/bootc/kargs.d/10-aws.toml
+
+# cloud-init:
+# - installing the package in a container build doesn't enable it, so enable it explicitly
+# - use only the EC2 datasource
+# - don't let cloud-init resize the disk: / is read-only composefs, and the base image's
+#   bootc-generic-growpart grows the root to the volume size at first boot
+# - declare /var/lib/cloud for systemd-tmpfiles
+RUN mkdir -p /usr/lib/systemd/system/default.target.wants && \
+    ln -sf /usr/lib/systemd/system/cloud-init.target \
+        /usr/lib/systemd/system/default.target.wants/cloud-init.target
+COPY files/90-aws-datasource.cfg files/91-bootc-no-resize.cfg /etc/cloud/cloud.cfg.d/
+COPY files/cloud-init-tmpfiles.conf /usr/lib/tmpfiles.d/cloud-init-bootc.conf
+
+# Writable /usr/local and /opt. RHEL 10 bootc base images keep both as read-only image content.
+# Restore the traditional links into /var so tools can install into /usr/local/bin (OpenShift
+# clients, AWS installers) and /opt (mirror-registry). The base image already creates
+# /var/usrlocal and /var/opt with tmpfiles and maps their SELinux labels to /usr/local and /opt.
+RUN test -z "$(find /usr/local /opt -mindepth 1 ! -type d)" \
+        || { echo "Refusing to replace non-empty /usr/local or /opt" >&2; exit 1; } && \
+    rm -rf /usr/local /opt && \
+    ln -s ../var/usrlocal /usr/local && \
+    ln -s var/opt /opt
+COPY files/usrlocal-tmpfiles.conf /usr/lib/tmpfiles.d/usrlocal-bin.conf
+
+# Let sudo find tools installed into /usr/local
+COPY --chmod=0440 files/10-secure-path-usrlocal /etc/sudoers.d/10-secure-path-usrlocal
+
+# fapolicyd is deliberately not included (install it on the host if your policy requires it)
+RUN ! rpm -q fapolicyd || { echo "fapolicyd must not be installed in this image" >&2; exit 1; }
+
+RUN bootc container lint
