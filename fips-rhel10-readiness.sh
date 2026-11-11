@@ -11,6 +11,8 @@
 # Usage:
 #   RHEL 9 host:      sudo ./fips-rhel10-readiness.sh [--scan-path DIR ...] [--cert-path DIR ...] [--quiet]
 #   OpenShift node:   oc debug node/<node> -- chroot /host bash -s -- --quiet < fips-rhel10-readiness.sh
+#                     (needs a terminal; from a script or non-interactive ssh stdin is not passed, so use:)
+#                     oc debug node/<node> -- chroot /host bash -c "echo $(base64 -w0 fips-rhel10-readiness.sh) | base64 -d > /tmp/r.sh; bash /tmp/r.sh --quiet; rm -f /tmp/r.sh"
 #
 # Exit codes: 0 = no FAIL/WARN, 1 = WARN found, 2 = FAIL found.
 # The script never modifies the system and makes no network calls.
@@ -237,7 +239,10 @@ fi
 
 # ---------------------------------------------------------------------------------------------------
 section "10. HMAC-SHA-1 and SHA-1 usage hints"
-HSHA1=$(grep -rIlsiE '^[^#;]*(hmac-?sha1|hmacsha1)' /etc /opt /usr/local 2>/dev/null | grep -vE '^/etc/(crypto-policies|ssh)/' | head -20)
+# Skip documentation and examples (e.g. the AWS CLI v2 tree ships *.rst examples that mention
+# HMAC-SHA1; false positive seen on a RHEL 9 host 2026-11-11).
+HSHA1=$(grep -rIlsiE --exclude='*.rst' --exclude='*.md' --exclude='*.html' --exclude='*.txt' --exclude-dir=examples --exclude-dir=doc --exclude-dir=docs \
+        '^[^#;]*(hmac-?sha1|hmacsha1)' /etc /opt /usr/local 2>/dev/null | grep -vE '^/etc/(crypto-policies|ssh)/' | head -20)
 [ -n "$HSHA1" ] && warn "Config mentions HMAC-SHA1 (DEPRECATED in RHEL 10 FIPS mode; may be removed):" "RN10.0 deprecated features - security" && echo "$HSHA1" | sed 's/^/         /'
 
 # ---------------------------------------------------------------------------------------------------

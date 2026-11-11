@@ -1,0 +1,194 @@
+
+== System ==
+[INFO] OS: Red Hat Enterprise Linux CoreOS 9.8.20261102-0 (Plow)  variant: coreos
+[PASS] Kernel FIPS mode enabled (/proc/sys/crypto/fips_enabled=1)
+
+== 1. System-wide crypto policy and subpolicies ==
+[INFO] Current policy: FIPS
+[PASS] No custom crypto-policy modules
+
+== 2. Removed FIPS tooling (fips-mode-setup, /etc/system-fips) ==
+[PASS] No references to fips-mode-setup or /etc/system-fips in /etc, /usr/local, /opt, cron, /root
+
+== 3. Removed / unvalidated crypto libraries ==
+[WARN] libgcrypt is NOT FIPS-validated on RHEL 10 (it was on RHEL 9). Packages requiring it: gnupg2 . GnuPG/GRUB2 are listed as non-compliant.
+       ref: SH10 'RHEL applications using cryptography not compliant with FIPS 140-3'
+[PASS] No OpenSSL 1.1-linked binaries under /usr/local /opt
+
+== 4. OpenSSL engines / provider configuration ==
+[PASS] OpenSSL config engine check done
+[INFO] OpenSSL FIPS indicators changed in RHEL 10 and may return 'unsupported'; apps that query indicators must be retested. [SH10 'RHEL 10.0 OpenSSL FIPS indicators']
+
+== 5. Trust store paths ==
+[WARN] Config references /etc/pki/tls/certs/ca-bundle*.crt directly; RHEL 10 guidance is /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:
+       ref: C10 20.2 trust bundle paths
+         /etc/krb5.conf
+
+== 6. Certificates: SHA-1 signatures, weak RSA, DSA ==
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/pki/ca-trust/source/anchors/openshift-config-user-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-serving-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-peer-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-peer-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-serving-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-serving-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-peer-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/configmaps/etcd-all-bundles/server-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-certs/configmaps/etcd-all-bundles/metrics-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-2/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-2/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-certs/secrets/kube-scheduler-client-cert-key/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-2/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-2/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-2/configmaps/service-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-3/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-3/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-3/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-3/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-3/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-3/configmaps/service-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-3/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-4/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-4/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-4/configmaps/service-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-4/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-certs/secrets/csr-signer/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-certs/secrets/kube-controller-manager-client-cert-key/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-certs/configmaps/aggregator-client-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-certs/configmaps/client-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-certs/configmaps/trusted-ca-bundle/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/aggregator-client/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/check-endpoints-client-cert-key/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/control-plane-node-admin-client-cert-key/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/external-loadbalancer-serving-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/internal-loadbalancer-serving-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/kubelet-client/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/localhost-serving-cert-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/secrets/service-network-serving-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/configmaps/aggregator-client-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/configmaps/client-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-certs/configmaps/trusted-ca-bundle/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-serving-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-serving-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-serving-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-peer-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-peer-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/secrets/etcd-all-certs/etcd-peer-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/configmaps/etcd-all-bundles/server-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-7/configmaps/etcd-all-bundles/metrics-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-4/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-4/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-4/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-5/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-5/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-5/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-5/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-5/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-5/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-5/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-5/configmaps/service-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-5/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-3/secrets/etcd-client/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-3/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-3/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-3/secrets/localhost-recovery-serving-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-3/configmaps/etcd-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-3/configmaps/kubelet-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-3/configmaps/kube-apiserver-server-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-peer-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-serving-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-peer-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-peer-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-serving-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/secrets/etcd-all-certs/etcd-serving-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/configmaps/etcd-all-bundles/metrics-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-8/configmaps/etcd-all-bundles/server-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-4/secrets/etcd-client/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-4/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-4/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-4/secrets/localhost-recovery-serving-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-4/configmaps/etcd-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-4/configmaps/kubelet-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-4/configmaps/kube-apiserver-server-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-6/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-6/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-6/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-6/configmaps/service-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-6/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-serving-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-peer-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-serving-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-serving-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-peer-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-49-196.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-serving-metrics-ip-10-0-48-116.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/secrets/etcd-all-certs/etcd-peer-ip-10-0-55-127.us-east-2.compute.internal.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/configmaps/etcd-all-bundles/metrics-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/etcd-pod-9/configmaps/etcd-all-bundles/server-ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-6/secrets/etcd-client/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-6/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-6/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-6/secrets/localhost-recovery-serving-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-6/configmaps/etcd-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-6/configmaps/kubelet-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-6/configmaps/kube-apiserver-server-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-6/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-6/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-6/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-scheduler-pod-6/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-10/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-10/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-10/secrets/serving-cert/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-10/configmaps/service-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-controller-manager-pod-10/configmaps/serviceaccount-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-7/secrets/etcd-client/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-7/secrets/localhost-recovery-client-token/service-ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-7/secrets/localhost-recovery-client-token/ca.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-7/secrets/localhost-recovery-serving-certkey/tls.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-7/configmaps/etcd-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-7/configmaps/kubelet-serving-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/static-pod-resources/kube-apiserver-pod-7/configmaps/kube-apiserver-server-ca/ca-bundle.crt
+[INFO] RSA 2048-bit (OK for FIPS, below FIPS:OSPP 3072): /etc/kubernetes/kubelet-ca.crt
+[INFO] Certificates inspected: 133 (paths: /etc/pki/tls/certs /etc/pki/ca-trust/source/anchors /etc/pki/tls/misc /etc/kubernetes /etc/pki/nssdb). Note: system CA bundle anchors are not individually parsed.
+
+== 7. SSH ==
+[FAIL] Host key /etc/ssh/ssh_host_ecdsa_key has mode 640; RHEL 10 OpenSSH requires 0600.
+       ref: C10 / RN10.0 OpenSSH host key permissions
+[WARN] Host key /etc/ssh/ssh_host_ecdsa_key is group ssh_keys; that group is removed in RHEL 10.
+       ref: C10 'ssh_keys group removed'
+[FAIL] Host key /etc/ssh/ssh_host_rsa_key has mode 640; RHEL 10 OpenSSH requires 0600.
+       ref: C10 / RN10.0 OpenSSH host key permissions
+[WARN] Host key /etc/ssh/ssh_host_rsa_key is group ssh_keys; that group is removed in RHEL 10.
+       ref: C10 'ssh_keys group removed'
+[PASS] No legacy SSH algorithm overrides
+[INFO] RHEL 10.2 OpenSSH adds hybrid ML-KEM KEX (mlkem768nistp256-sha256, mlkem1024nistp384-sha384) allowed in FIPS. [RN10.2]
+
+== 8. Kerberos / IdM ==
+
+== 9. GnuTLS RSA PKCS#1 v1.5 encryption ==
+[INFO] GnuTLS consumers (RHEL 10 sets allow-rsa-pkcs1-encrypt=false in DEFAULT/FUTURE/FIPS; RSA key-transport/PKCS#1 v1.5 encryption will fail): NetworkManager NetworkManager-libnm chrony criu fwupd glib2 gnupg2 libjcat libmicrohttpd samba-client-libs systemd-journal-remote 
+[INFO]   Retest any of these that talk to legacy peers using TLS RSA key exchange. [C10 'crypto-policies now set allow-rsa-pkcs1-encrypt = false for GnuTLS']
+
+== 10. HMAC-SHA-1 and SHA-1 usage hints ==
+
+== 11. OpenShift / RHCOS specifics ==
+[PASS] CRI-O default runtime: default_runtime = "crun"
+[INFO] On OCP, FIPS is set by install-config 'fips: true' (immutable). Workload images inherit host FIPS mode; rebuild images carrying OpenSSL 1.1 or SHA-1 dependencies.
+[INFO] Tip: scan workload images with this script, e.g. podman run --rm -v ./fips-rhel10-readiness.sh:/s:Z <image> bash /s --quiet
+
+== Not checkable locally (review manually) ==
+[INFO] - Remote peers: TLS 1.2 without Extended Master Secret, RSA key exchange, SHA-1 signed peer certs, ChaCha20-only clients.
+[INFO] - RHEL 10 CMVP certificate status for your required modules (Red Hat 'Compliance Activities and Government Standards', KB 2918071).
+[INFO] - Java/OpenJDK and Go FIPS behavior specific to RHEL 10 (no official delta doc found).
+
+Summary: 2 FAIL, 4 WARN, 7 PASS, 145 INFO
+exit=2
