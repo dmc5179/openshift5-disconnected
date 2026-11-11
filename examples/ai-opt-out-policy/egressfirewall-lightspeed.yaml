@@ -1,0 +1,37 @@
+# Network-level backstop for the AI opt-out (A5): pods in openshift-lightspeed may reach the
+# cluster and the machine network only. Any external LLM endpoint (OpenAI, Azure OpenAI,
+# watsonx, Gemini, a public vLLM) is dropped by OVN-Kubernetes before it leaves the node,
+# whatever proxy or NAT is in place. The operator keeps working: the Kubernetes API is on the
+# control-plane nodes (machine network) and on the service network.
+#
+# Lab-validated 2026-11-11 on OCP 5.0.1 (OVN-Kubernetes, AWS). See RESULTS.md, "EgressFirewall".
+#
+# Adjust the CIDRs to your cluster:
+#   oc get network.config cluster -o jsonpath='{.spec.clusterNetwork[*].cidr} {.spec.serviceNetwork[*]}'
+#   machine network: install-config networking.machineNetwork (kube-system/cluster-config-v1)
+# To allow ONE approved internal LLM (for example a vLLM on OpenShift AI outside the machine
+# network), add an Allow rule for its address above the final Deny.
+# The object must be named "default"; one per namespace. Rules are evaluated top to bottom.
+# A cluster-admin can delete it: pair it with RBAC and GitOps/ACM, like the admission policy.
+apiVersion: k8s.ovn.org/v1
+kind: EgressFirewall
+metadata:
+  name: default
+  namespace: openshift-lightspeed
+spec:
+  egress:
+  - type: Allow
+    to:
+      cidrSelector: 10.0.0.0/16        # machine network (control-plane nodes = Kubernetes API)
+  - type: Allow
+    to:
+      cidrSelector: 172.30.0.0/16      # service network
+  - type: Allow
+    to:
+      cidrSelector: 10.128.0.0/14      # cluster (pod) network
+  # - type: Allow
+  #   to:
+  #     cidrSelector: <APPROVED_INTERNAL_LLM_IP>/32
+  - type: Deny
+    to:
+      cidrSelector: 0.0.0.0/0

@@ -227,3 +227,25 @@ is `true`; everything else is unchanged. To test at the next rebuild (lightspeed
 create `AgenticOLSConfig cluster` with `spec.suspended: true` (expect allowed) and with `false` (expect denied),
 and `oc apply --dry-run=server -f policy.yaml` for the CEL compile check. Upstream notes the semantics may
 flip after OLS 2.0 ("explicit, unsuspended AgenticOLSConfig" required); recheck on newer bundles.
+
+## EgressFirewall on openshift-lightspeed (2026-11-11, OCP 5.0.1, OVN-Kubernetes) [LAB]
+
+`egressfirewall-lightspeed.yaml` allows the machine network (10.0.0.0/16), the service network and the pod network, and denies 0.0.0.0/0. Probe pod in `openshift-lightspeed` (restricted SCC, tools image from the mirror), `curl -m 10`:
+
+| Destination | Before | With EgressFirewall |
+|---|---|---|
+| `https://sts.us-east-2.amazonaws.com` (allowed by the Squid allowlist) | 302 | **timeout (rc 28)**: dropped by OVN |
+| `https://api.openai.com` | rc 35 (Squid reset) | **timeout (rc 28)**: dropped by OVN before Squid |
+| `https://kubernetes.default.svc/healthz` | 200 | 200 |
+
+- Status `EgressFirewall Rules applied` within 15 s.
+- Both Lightspeed operator pods stayed Running, and their leader lease kept renewing.
+- 0 errors in the operator log.
+- 32/32 ClusterOperators healthy.
+- So the firewall blocks any external LLM endpoint even where the site proxy or NAT would allow it, and the operator keeps working.
+- **Left installed.** Remove with `oc delete egressfirewall default -n openshift-lightspeed`.
+
+Limits:
+- It is namespaced, so it does not cover an LLM client running in another namespace.
+- A cluster-admin can delete it.
+- The machine-network Allow rule also covers anything else in that CIDR, so put an approved internal LLM there deliberately, or narrow the rule to the API endpoints.
