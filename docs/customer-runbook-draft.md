@@ -162,6 +162,50 @@ non-root user. Until this is tested, run the install from a host with fapolicyd 
 Also seen: the AWS CLI v2 installer prints success even when fapolicyd blocked its self-check. Check with
 `aws --version`.
 
+### 2.4 RHEL 10 FIPS install host (image mode)
+
+Why plan for it now: later OpenShift releases (for example 5.3) need RHEL 10 tooling hosts, and on RHEL 10 FIPS
+can **only be enabled at installation** (`fips=1` on the kernel command line; `fips-mode-setup` is removed). A
+FIPS RHEL 10 host is therefore a new image, not a change to an existing host. We built one as an image-mode
+(bootc) AMI and used it as the install host. Results: `examples/rhel10-fips-host/RESULTS*.md`; example image
+build inputs: `examples/rhel10-fips-bastion-image/`.
+
+**Host image requirements** (all Lab-validated on RHEL 10.2, 2026-11-04 to 11-11, unless marked):
+
+| Requirement | Why | Status |
+|---|---|---|
+| `fips=1` kernel argument in the image and crypto policy `FIPS` | FIPS only at installation | Lab-validated (`fips_enabled=1`, policy FIPS) |
+| `/usr/local -> /var/usrlocal` and `/opt -> /var/opt` | The RHEL 10.2 bootc base image leaves both read-only (KB 7137990); client installs, the AWS CLI installer and `/opt/quay-root` need them writable | Lab-validated |
+| Packages baked in: `acl`, `nmstate`, `xorriso`, `podman`, `skopeo`, `jq`, AWS CLI v2, plus `wget`, `unzip`, `tar`, `tmux` | No repositories at runtime (unregistered / BYOS image). `acl` (`setfacl`) is needed by mirror-registry; `nmstatectl` by `agent create image` with `networkConfig` | Lab-validated: nothing installed at runtime |
+| cloud-init, default user `cloud-user`; root filesystem grows to the volume size (we used 300 GB) | Our scripts expect `ec2-user`, so our template creates it on image-mode hosts | Lab-validated |
+| IMDSv2 required, SELinux enforcing | Hardening baseline | Lab-validated (IMDSv1 refused, 0 AVCs) |
+| `sudo` `secure_path` includes `/usr/local/bin` | Tools installed there must run with `sudo` | Lab-validated in our image; the base image may differ |
+
+**What worked on the RHEL 10.2 FIPS host:**
+
+| Step | Status |
+|---|---|
+| RHEL 9 builds of `oc`, `kubectl`, `openshift-install-fips` and `ccoctl` (5.0.0 and 5.0.1) start in strict FIPS mode and load the RHEL 10 `libcrypto.so.3` and `fips.so` | Lab-validated |
+| Extract `openshift-install-fips` from the mirrored payload (section 5; 23 to 31 s, no internet) | Lab-validated |
+| Extract CredentialsRequests from the mirror and plan the STS roles with `ccoctl aws create-all --dry-run` (no AWS credentials needed) | Lab-validated |
+| FIPS oc-mirror: the **container image build** (section 4.1) mirror-to-mirror into Quay | Lab-validated |
+| Agent ISO offline (`agent create image`, `fips: true`) with all Red Hat endpoints blocked: 0 connection attempts | Lab-validated |
+| mirror-registry 2.0.12 as root with data under `/var/quay-root` (install, restart, uninstall) | Lab-validated |
+| Full cluster install from the host in the private subnet (install 5, 5.0.0, 42 min, 32/32 operators) | Lab-validated |
+| `openshift-install create cluster` from this host for 5.0.1 | Untested (5.0.0 only) |
+
+**Caveats:**
+- The oc-mirror CDN tarball is static and never loads OpenSSL, so it is **not FIPS-capable** (OCPBUGS-136646).
+  Use the container image build on FIPS hosts.
+- No RHEL 10 builds of the OpenShift clients are published (only `rhel9` tarballs), and Red Hat has not published a
+  support statement for RHEL 9 client builds on RHEL 10 (checked 2026-11-11).
+- mirror-registry has no published supported-OS statement for RHEL 10. It works (Lab-validated), but confirm
+  support with Red Hat before production use.
+- The RHEL 10.2 FIPS provider identifies itself as "Red Hat Enterprise Linux 9 - OpenSSL FIPS Provider 3.0.7".
+  Ask Red Hat for the FIPS 140-3 validation status of the RHEL 10 modules if your compliance program needs it.
+- fapolicyd is not in this image and was not tested on it (section 2.3).
+- Updates come from rebuilding the image (or `bootc upgrade` against your own registry), not `dnf`.
+
 ## 3. Mirror registry
 
 ### 3.1 Install mirror-registry
