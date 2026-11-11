@@ -92,13 +92,24 @@ wait_stack_services() {
 recover_cluster() {
     stack_ready >/dev/null
     local RDIR="ocp-install/${CLUSTER_NAME}"
-    echo "==> Approving pending node CSRs until all nodes are Ready (up to 20 min)"
+    echo "==> Approving pending node CSRs until every node is Ready with a fresh heartbeat (up to 20 min)"
+    # Node status right after a start is the stale status from before the stop: 'Ready' alone
+    # proves nothing (seen 2026-11-11: all Ready, heartbeats 16 h old, 10 CSRs pending, aggregated
+    # APIs down). Require a Ready heartbeat newer than the start, no pending CSRs, and no
+    # unavailable APIService.
     install_ssh "export KUBECONFIG=~/${RDIR}/auth/kubeconfig
+        start=\$(date -u +%Y-%m-%dT%H:%M:%SZ)
         for i in \$(seq 1 80); do
             p=\$(oc get csr -o go-template='{{range .items}}{{if not .status}}{{.metadata.name}}{{\"\\n\"}}{{end}}{{end}}' 2>/dev/null)
             [ -n \"\$p\" ] && echo \"\$p\" | xargs oc adm certificate approve | sed 's/^/    /'
-            nr=\$(oc get nodes --no-headers 2>/dev/null | awk '\$2!=\"Ready\"' | wc -l); tot=\$(oc get nodes --no-headers 2>/dev/null | wc -l)
-            [ \"\$tot\" -gt 0 ] && [ \"\$nr\" -eq 0 ] && { echo \"    all \$tot nodes Ready\"; break; }
+            tot=\$(oc get nodes --no-headers 2>/dev/null | wc -l)
+            fresh=\$(oc get nodes -o jsonpath='{range .items[*]}{.status.conditions[?(@.type==\"Ready\")].status} {.status.conditions[?(@.type==\"Ready\")].lastHeartbeatTime}{\"\\n\"}{end}' 2>/dev/null \
+                     | awk -v s=\"\$start\" '\$1==\"True\" && \$2>=s' | wc -l)
+            apis=\$(oc get apiservices --no-headers 2>/dev/null | awk '\$3 ~ /^False/' | wc -l)
+            if [ \"\$tot\" -gt 0 ] && [ \"\$fresh\" -eq \"\$tot\" ] && [ -z \"\$p\" ] && [ \"\$apis\" -eq 0 ]; then
+                echo \"    all \$tot nodes Ready with fresh heartbeats, no pending CSRs, all APIServices available\"; break
+            fi
+            [ \$((i % 4)) -eq 0 ] && echo \"    waiting: \$fresh/\$tot nodes with a fresh heartbeat, \$apis APIServices unavailable\"
             sleep 15
         done
         oc get nodes --no-headers | sed 's/^/    /'
