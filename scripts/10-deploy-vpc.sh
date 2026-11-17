@@ -106,6 +106,11 @@ case "${S3_GATEWAY_ENDPOINT:-false}" in true|false) ;; *) echo "Error: S3_GATEWA
 
 # --- bastion AMI: newest Red Hat RHEL <major> for the region ---------------------
 case "${BASTION_RHEL_VERSION:-9}" in 9|10) ;; *) echo "Error: BASTION_RHEL_VERSION must be 9 or 10." >&2; exit 1 ;; esac
+# RHEL 10 bastion without a pinned AMI = the stock Red Hat RHEL 10 AMI: package mode and NOT FIPS.
+if [ "${BASTION_RHEL_VERSION:-9}" = 10 ] && [ -z "${BASTION_AMI_ID:-}" ]; then
+    echo "WARNING: BASTION_RHEL_VERSION=10 without BASTION_AMI_ID uses the stock RHEL 10 AMI (not FIPS)." >&2
+    echo "         For the FIPS image-mode bastion set BASTION_AMI_ID=\"\$RHEL10_FIPS_AMI_ID\" (B-3)." >&2
+fi
 if [ -z "${BASTION_AMI_ID:-}" ]; then
     BASTION_AMI_ID="$(latest_rhel_ami "$BASTION_RHEL_VERSION")"
     [ -n "$BASTION_AMI_ID" ] && [ "$BASTION_AMI_ID" != "None" ] \
@@ -147,6 +152,18 @@ if [ -z "${ALLOWED_SSH_CIDR:-}" ]; then
         || { echo "Error: cannot determine this machine's public IP; set ALLOWED_SSH_CIDR." >&2; exit 1; }
     ALLOWED_SSH_CIDR="${my_ip}/32"
 fi
+# Up to two extra SSH sources (home/office); drop duplicates of ALLOWED_SSH_CIDR, since a
+# duplicate rule in one security group fails the stack.
+EXTRA_SSH=()
+IFS=',' read -r -a _extra <<< "${EXTRA_SSH_CIDRS:-}"
+for c in "${_extra[@]}"; do
+    c="${c//[[:space:]]/}"
+    [ -n "$c" ] && [ "$c" != "$ALLOWED_SSH_CIDR" ] || continue
+    [[ " ${EXTRA_SSH[*]} " == *" $c "* ]] && continue
+    EXTRA_SSH+=("$c")
+done
+[ "${#EXTRA_SSH[@]}" -le 2 ] || { echo "Error: EXTRA_SSH_CIDRS has more than 2 distinct entries (template allows 2)." >&2; exit 1; }
+echo "==> Bastion SSH allowed from: ${ALLOWED_SSH_CIDR}${EXTRA_SSH[*]:+ ${EXTRA_SSH[*]}}"
 
 # CloudFormation accepts at most 51,200 bytes inline (--template-body). The template is
 # larger (fapolicyd block per node, B-5), so it goes through a private S3 bucket
@@ -191,7 +208,7 @@ jq -n \
     --arg cidr "$VPC_CIDR" --arg azs "$VPC_AZ_COUNT" --arg bits "$VPC_SUBNET_BITS" \
     --arg key "$EC2_KEY_NAME" --arg ver "$OCP_VERSION" \
     --arg nat "$PROXY_INSTANCE_TYPE" --arg bas "$BASTION_INSTANCE_TYPE" --arg reg "$REGISTRY_INSTANCE_TYPE" \
-    --arg ami "$BASTION_AMI_ID" --arg nami "$NODE_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" \
+    --arg ami "$BASTION_AMI_ID" --arg nami "$NODE_AMI_ID" --arg ssh "$ALLOWED_SSH_CIDR" --arg ssh1 "${EXTRA_SSH[0]:-}" --arg ssh2 "${EXTRA_SSH[1]:-}" \
     --arg cb "$CLIENT_BUILD" --arg ocm "$OC_MIRROR_URL" \
     --arg src "${PULL_SECRET_SOURCE:-ssm}" --arg ssm "$PULL_SECRET_SSM_NAME" \
     --arg egress "${EGRESS_PROFILE:-regional}" --arg s3ep "${S3_GATEWAY_ENDPOINT:-false}" --arg fapo "${FAPOLICYD_MODE:-disable}" \
@@ -207,6 +224,8 @@ jq -n \
       {ParameterKey:"BastionAmiId",          ParameterValue:$ami},
       {ParameterKey:"NodeAmiId",             ParameterValue:$nami},
       {ParameterKey:"AllowedSshCidr",        ParameterValue:$ssh},
+      {ParameterKey:"ExtraSshCidr1",         ParameterValue:$ssh1},
+      {ParameterKey:"ExtraSshCidr2",         ParameterValue:$ssh2},
       {ParameterKey:"ClientRhelBuild",       ParameterValue:$cb},
       {ParameterKey:"OcMirrorUrl",           ParameterValue:$ocm},
       {ParameterKey:"EgressProfile",         ParameterValue:$egress},
