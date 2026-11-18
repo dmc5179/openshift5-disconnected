@@ -42,3 +42,12 @@ OLSConfig CRD (`ols.openshift.io/v1alpha1`, required: `spec.llm`, `spec.ols`):
 - To keep everything off: don't mirror lightspeed-operator, and/or use the AI opt-out policy (blocks OLSConfig,
   AgenticOLSConfig except suspended, the Lightspeed Subscription/ClusterExtension and the console plugins).
 - Disconnected sizing: the RHOKP image is large; budget mirror space and pull time if OLS is mirrored.
+
+## Addendum 2026-11-17: which write tools are actually exposed [JIRA, internal]
+OLS-4630 (Closed/Done, fixVersion ols-2.1) shows that `read_only = false` alone is not the full picture.
+- In operator 1.1.4-2.0, `disable_destructive` is not set, so the MCP image default `DisableDestructive=true` hides the 10 `destructiveHint=true` tools: pods_delete, pods_exec, resources_create_or_update, resources_delete, resources_scale, helm_uninstall, vm_clone, vm_create, vm_create_from_template, vm_lifecycle.
+- Mutating tools annotated non-destructive (`helm_install`, `pods_run`) stay exposed.
+- From ols-2.1 the operator sets `disable_destructive = false`, so create/update/delete/exec become available too.
+- All calls use the caller's token, so there is no escalation beyond the user's RBAC.
+- Our lab did not call `tools/list`; this addendum is from the ticket and the operator spec (lightspeed-operator main `.ai/spec/what/security.md` rule 16).
+- RFE draft (not filed): ~/workspace/jira-drafts/rfe-ols-mcp-readonly-default.md.
